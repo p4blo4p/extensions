@@ -5,7 +5,6 @@
 // @match       https://www.cardmarket.com/*/Magic/*/*/*
 // @grant       none
 // @version     1.3
-// @author      -
 // @description Ensures sell-count elements are visible and styled appropriately.
 // @run-at      document-idle
 // ==/UserScript==
@@ -35,13 +34,13 @@
         });
     }
 
-    const observer = new MutationObserver((mutations) => {
+    function checkAndModifySellCountElements() {
         if (document.querySelectorAll('.sell-count').length > 0) {
             modifySellCountElements();
+        } else {
+            setTimeout(checkAndModifySellCountElements, 1000); // Check again after 1 second
         }
-    });
+    }
 
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    window.addEventListener('load', modifySellCountElements); // Ensure the function runs on page load
+    checkAndModifySellCountElements(); // Initial check
 })();
