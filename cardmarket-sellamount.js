@@ -2,6 +2,7 @@
 // @name        New script cardmarket.com
 // @namespace   Violentmonkey Scripts
 // @match       https://www.cardmarket.com/*/Magic/Cards/*
+// @match       https://www.cardmarket.com/*/Magic/*/*/*
 // @grant       none
 // @version     1.0
 // @author      -
@@ -39,5 +40,5 @@
 
     observer.observe(document.body, { childList: true, subtree: true });
 
-    window.addEventListener('load', modifySellCountElements); // Esperar a que la página se cargue completamente
+    window.addEventListener('DOMContentLoaded', modifySellCountElements); // Esperar a que la página se cargue completamente
 })();
