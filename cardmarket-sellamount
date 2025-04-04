@@ -1,0 +1,68 @@
+// ==UserScript==
+// @name        New script cardmarket.com
+// @namespace   Violentmonkey Scripts
+// @match       https://www.cardmarket.com/*/Magic/Cards/*
+// @grant       none
+// @version     1.0
+// @author      -
+// @description 13/2/2025, 17:21:18
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // Function to modify sell-count elements
+    function modifySellCountElements() {
+        // Selecciona todas las clases .sell-count
+        const elements = document.querySelectorAll('.sell-count');
+
+        // Itera sobre cada elemento y sustituye el texto por el valor del atributo data-bs-original-title
+        elements.forEach(element => {
+            // Remove the d-none class to ensure the element is visible
+            element.classList.remove('d-none');
+
+            const newText = element.getAttribute('data-bs-original-title');
+            if (newText) {
+                // Crea un nuevo nodo de texto con el valor extraído
+                const textToAppend = newText.match(/\|\s*(\d+)/);
+
+                if (textToAppend) {
+                    // Crea un nuevo elemento span para el texto
+                    const newSpan = document.createElement('span');
+                    newSpan.textContent = "  | " + textToAppend[1]; // Append the matched number
+
+                    // Set the color based on the number of digits
+                    const numberLength = textToAppend[1].length;
+                    if (numberLength >= 5) {
+                        newSpan.style.color = 'lime'; // 5 digits
+                    } else if (numberLength === 4) {
+                        newSpan.style.color = 'orange'; // 4 digits
+                    } else {
+                        newSpan.style.color = 'gray'; // Less than 4 digits
+                    }
+
+                    // Añade el nuevo nodo de texto como último hijo del elemento
+                    element.appendChild(newSpan);
+                }
+            }
+
+            // Cambia el estilo CSS width a auto
+            element.style.width = 'auto';
+        });
+    }
+
+    // Create a MutationObserver to watch for changes in the DOM
+    const observer = new MutationObserver((mutations) => {
+        // Check if the elements are present
+        if (document.querySelectorAll('.sell-count').length > 0) {
+            modifySellCountElements();
+            observer.disconnect(); // Stop observing after modification
+        }
+    });
+
+    // Start observing the body for child additions
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // Optionally, you can also call the function immediately in case elements are already present
+    modifySellCountElements();
+})();
