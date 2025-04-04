@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name        New script cardmarket.com
+// @name        amountElements cardmarket.com
 // @namespace   Violentmonkey Scripts
 // @match       https://www.cardmarket.com/*/Magic/Cards/*
 // @match       https://www.cardmarket.com/*/Magic/*/*/*
