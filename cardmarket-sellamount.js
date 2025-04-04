@@ -11,13 +11,17 @@
 
 (function() {
     'use strict';
+    
+    console.log('Script started');
 
     function modifySellCountElements() {
         const elements = document.querySelectorAll('.sell-count');
+        console.log('Found elements:', elements.length);
         elements.forEach(element => {
             if (!element.classList.contains('modified')) {
                 element.classList.remove('d-none');
                 const newText = element.getAttribute('data-bs-original-title');
+                console.log('Processing element:', newText);
                 if (newText) {
                     const textToAppend = newText.match(/\|\s*(\d+)/);
                     if (textToAppend) {
@@ -33,14 +37,16 @@
             }
         });
     }
-
+    
     function checkAndModifySellCountElements() {
         if (document.querySelectorAll('.sell-count').length > 0) {
+            console.log('Elements found, modifying...');
             modifySellCountElements();
         } else {
+            console.log('Elements not found, checking again in 1 second...');
             setTimeout(checkAndModifySellCountElements, 1000); // Check again after 1 second
         }
     }
-
+    
     checkAndModifySellCountElements(); // Initial check
 })();
