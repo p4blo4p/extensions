@@ -4,7 +4,7 @@
 // @match       https://www.cardmarket.com/*/Magic/Cards/*
 // @match       https://www.cardmarket.com/*/Magic/*/*/*
 // @grant       none
-// @version     1.0
+// @version     1.1
 // @author      -
 // @description 13/2/2025, 17:21:18
 // ==/UserScript==
