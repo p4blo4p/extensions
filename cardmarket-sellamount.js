@@ -40,5 +40,6 @@
 
     observer.observe(document.body, { childList: true, subtree: true });
 
-    window.addEventListener('DOMContentLoaded', modifySellCountElements); // Esperar a que la página se cargue completamente
+    // Remove the DOMContentLoaded event listener
+    // window.addEventListener('DOMContentLoaded', modifySellCountElements);
 })();
