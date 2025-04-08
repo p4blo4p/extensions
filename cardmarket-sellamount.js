@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name        amountElements cardmarket.com
 // @namespace   Violentmonkey Scripts
-// @match       https://www.cardmarket.com/*/Magic/Cards/*
-// @match       https://www.cardmarket.com/*/Magic/Products/Singles/*/*
+// @match       https://www.cardmarket.com/*/*/Cards/*
+// @match       https://www.cardmarket.com/*/*/Products/Singles/*/*
 // @grant       none
-// @version     1.43
+// @version     1.44
 // @description Ensures sell-count elements are visible and styled appropriately.
 // @run-at      document-end
 // ==/UserScript==
