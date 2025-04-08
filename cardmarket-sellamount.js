@@ -4,7 +4,7 @@
 // @match       https://www.cardmarket.com/*/*/Cards/*
 // @match       https://www.cardmarket.com/*/*/Products/Singles/*/*
 // @grant       none
-// @version     1.45
+// @version     1.46
 // @description Ensures sell-count elements are visible and styled appropriately.
 // @run-at      document-end
 // ==/UserScript==
@@ -22,7 +22,7 @@
             try {
                 if (!element.classList.contains('modified')) {
                     element.classList.remove('d-none');
-                    const newText = element.getAttribute('data-bs-original-title');
+                    const newText = element.getAttribute('title');
                     console.log('Processing element:', newText);
 
                     if (newText) {
@@ -34,28 +34,5 @@
                             newSpan.style.color = numberLength >= 5 ? 'lime' : numberLength === 4 ? 'orange' : 'gray';
                             element.appendChild(newSpan);
                         }
-                    } else {
-                        console.warn('Element missing data-bs-original-title attribute:', element);
-                    }
-                    element.style.width = 'auto';
-                    element.classList.add('modified'); // Mark the element as modified
-                }
-            } catch (error) {
-                console.error('Error processing element:', error);
-            }
-        });
-    }
-
-    function checkAndModifySellCountElements() {
-        const elements = document.querySelectorAll('.sell-count');
-        if (elements.length > 0) {
-            console.log('Elements found, modifying...');
-            modifySellCountElements();
-        } else {
-            console.log('Elements not found, checking again in 1 second...');
-            setTimeout(checkAndModifySellCountElements, 1000); // Check again after 1 second
-        }
-    }
-
-    checkAndModifySellCountElements(); // Initial check
-})();
+                    } else
+
