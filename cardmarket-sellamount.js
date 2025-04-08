@@ -4,7 +4,7 @@
 // @match       https://www.cardmarket.com/*/*/Cards/*
 // @match       https://www.cardmarket.com/*/*/Products/Singles/*/*
 // @grant       none
-// @version     1.44
+// @version     1.45
 // @description Ensures sell-count elements are visible and styled appropriately.
 // @run-at      document-end
 // ==/UserScript==
