@@ -34,6 +34,8 @@
                             newSpan.style.color = numberLength >= 5 ? 'lime' : numberLength === 4 ? 'orange' : 'gray';
                             element.appendChild(newSpan);
                         }
+                    } else {
+                        console.warn('Element missing data-bs-original-title attribute:', element);
                     }
                     element.style.width = 'auto';
                     element.classList.add('modified'); // Mark the element as modified
@@ -43,7 +45,7 @@
             }
         });
     }
-    
+
     function checkAndModifySellCountElements() {
         const elements = document.querySelectorAll('.sell-count');
         if (elements.length > 0) {
@@ -54,6 +56,6 @@
             setTimeout(checkAndModifySellCountElements, 1000); // Check again after 1 second
         }
     }
-    
+
     checkAndModifySellCountElements(); // Initial check
 })();
