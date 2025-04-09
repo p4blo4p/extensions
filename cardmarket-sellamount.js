@@ -4,18 +4,21 @@
 // @match       https://www.cardmarket.com/*/*/Cards/*
 // @match       https://www.cardmarket.com/*/*/Products/Singles/*/*
 // @grant       none
-// @version     1.47
+// @version     1.48
 // @description Ensures sell-count elements are visible and styled appropriately.
 // @run-at      document-end
 // ==/UserScript==
 
 (function() {
     'use strict';
-    
+
     console.log('Script started');
 
+    // Definir selectores como constantes
+    const SELL_COUNT_SELECTOR = '.sell-count';
+
     function modifySellCountElements() {
-        const elements = document.querySelectorAll('.sell-count');
+        const elements = document.querySelectorAll(SELL_COUNT_SELECTOR);
         console.log('Found elements:', elements.length);
 
         elements.forEach(element => {
@@ -38,7 +41,7 @@
                         console.warn('Element missing data-bs-original-title attribute:', element);
                     }
                     element.style.width = 'auto';
-                    element.classList.add('modified'); // Mark the element as modified
+                    element.classList.add('modified'); // Marcar el elemento como modificado
                 }
             } catch (error) {
                 console.error('Error processing element:', error);
@@ -46,16 +49,17 @@
         });
     }
 
-    function checkAndModifySellCountElements() {
-        const elements = document.querySelectorAll('.sell-count');
+    // Usar MutationObserver para observar cambios en el DOM
+    const observer = new MutationObserver(() => {
+        const elements = document.querySelectorAll(SELL_COUNT_SELECTOR);
         if (elements.length > 0) {
             console.log('Elements found, modifying...');
             modifySellCountElements();
-        } else {
-            console.log('Elements not found, checking again in 1 second...');
-            setTimeout(checkAndModifySellCountElements, 1000); // Check again after 1 second
         }
-    }
+    });
 
-    checkAndModifySellCountElements(); // Initial check
+    // Configuración del observador
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    console.log('MutationObserver initialized');
 })();
