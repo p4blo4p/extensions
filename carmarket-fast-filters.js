@@ -4,7 +4,8 @@
 // @version      1.0
 // @description  Overlay buttons with hyperlinks on a webpage
 // @author       Your Name
-// @match        *://*/*
+// @match       https://www.cardmarket.com/*/*/Cards/*
+// @match       https://www.cardmarket.com/*/*/Products/Singles/*/*
 // @grant        none
 // ==/UserScript==
 
@@ -23,7 +24,7 @@
 
     // Add a button with an href
     const linkButton1 = document.createElement('a');
-    linkButton1.textContent = 'Google';
+    linkButton1.textContent = 'Spain';
     linkButton1.href = 'https://www.google.com';
     linkButton1.target = '_blank'; // Opens in a new tab
     linkButton1.style.display = 'inline-block';
@@ -35,7 +36,7 @@
     linkButton1.style.borderRadius = '5px';
 
     const linkButton2 = document.createElement('a');
-    linkButton2.textContent = 'GitHub';
+    linkButton2.textContent = 'Revised';
     linkButton2.href = 'https://github.com';
     linkButton2.target = '_blank'; // Opens in a new tab
     linkButton2.style.display = 'inline-block';
