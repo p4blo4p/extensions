@@ -4,7 +4,7 @@
 // @match       https://www.cardmarket.com/*/*/Cards/*
 // @match       https://www.cardmarket.com/*/*/Products/Singles/*/*
 // @grant       none
-// @version     1.51 // Incremented version
+// @version     1.52 // Incremented version to reflect changes
 // @description Ensures sell-count elements are visible, styled, and handles dynamic loading.
 // @run-at      document-end
 // ==/UserScript==
@@ -38,11 +38,11 @@
                 log('Forced display style for element:', element);
             }
 
-            // Extract data from the title attribute
-            const originalTitle = element.getAttribute('data-bs-original-title');
+            // Extract data from the data-bs-original-title or title attribute
+            let originalTitle = element.getAttribute('data-bs-original-title') || element.getAttribute('title');
             if (!originalTitle) {
-                log('Skipping element as it is missing the data-bs-original-title attribute.');
-                return; // Exit early if the attribute is missing
+                log('Skipping element as it is missing both data-bs-original-title and title attributes.');
+                return; // Exit early if both attributes are missing
             }
 
             log(`Element title attribute: "${originalTitle}"`);
@@ -64,8 +64,8 @@
                 // Assign text and style
                 numberSpan.textContent = " | " + numberStr;
                 numberSpan.style.color = numberLength >= 5 ? 'lime'
-                                         : numberLength === 4 ? 'orange'
-                                         : 'gray'; // Default to gray for fewer than 4 digits
+                                            : numberLength === 4 ? 'orange'
+                                            : 'gray'; // Default to gray for fewer than 4 digits
 
                 log('Appended/Updated number span:', numberSpan.textContent, 'Color:', numberSpan.style.color);
             } else {
