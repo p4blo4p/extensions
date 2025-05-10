@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         Cardmarket Order Exporter to CSV
+// @name         Cardmarket Order Exporter to CSV (Direct Rarity Title)
 // @namespace    http://tampermonkey.net/
-// @version      1.2
-// @description  Extracts Cardmarket order details to CSV format.
-// @author       Your Name
-// @match        https://www.cardmarket.com/*/Magic/Orders/*
+// @version      1.9.2
+// @description  Extracts Cardmarket order details. Prioritizes rarity-symbol title for rarity.
+// @author       Your Name (Modified by AI)
+// @match        https://www.cardmarket.com/*/*/Orders/*
 // @grant        GM_addStyle
 // @grant        GM_setClipboard
 // ==/UserScript==
@@ -37,15 +37,20 @@
             return '';
         }
         str = String(str);
-        // Replace newlines with a space, remove extra whitespace
         str = str.replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ').trim();
-        // If the string contains a comma, double quotes, or newline, enclose in double quotes
         if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-            // Escape existing double quotes by doubling them
             str = `"${str.replace(/"/g, '""')}"`;
         }
         return str;
     }
+
+    function sanitizeForFilename(str) {
+        if (str === null || str === undefined) {
+            return '';
+        }
+        return String(str).replace(/[^a-z0-9_\-\s.]/gi, '_').replace(/\s+/g, '_');
+    }
+
 
     function getText(selector, parent = document) {
         const el = parent.querySelector(selector);
@@ -62,28 +67,56 @@
 
         // --- General Order Info ---
         const orderIdText = getText('h1.text-break') || getText('div.page-title-container h1');
-        const orderId = orderIdText.replace('Compra #', '').trim();
+        const orderId = orderIdText.replace(/Compra\s*#\s*|Order\s*#\s*/i, '').trim();
 
         const sellerUsername = getText('#SellerBuyerInfo .seller-name a[href*="/Users/"]');
-        const sellerLocationIcon = document.querySelector('#SellerBuyerInfo .seller-name span.icon[title*="Ubicación del artículo"]');
-        const sellerLocation = sellerLocationIcon ? sellerLocationIcon.getAttribute('title').replace('Ubicación del artículo: ', '') : '';
+        const sellerLocationIcon = document.querySelector('#SellerBuyerInfo .seller-name span.icon[title*="Ubicación del artículo"], #SellerBuyerInfo .seller-name span.icon[title*="Item location"]');
+        const sellerLocation = sellerLocationIcon ? (sellerLocationIcon.getAttribute('title').replace(/Ubicación del artículo:\s*|Item location:\s*/i, '')) : '';
 
         const timeline = {};
         document.querySelectorAll('#Timeline .timeline-box').forEach(box => {
-            const parts = box.textContent.trim().split(':');
-            if (parts.length >= 2) {
-                const status = parts[0].trim();
-                const dateTime = parts.slice(1).join(':').trim().replace(/\s+/g, ' ');
+            const statusDiv = box.querySelector('div:nth-child(1)');
+            const dateTimeDiv = box.querySelector('div:nth-child(2)');
+            if (statusDiv && dateTimeDiv) {
+                const status = statusDiv.textContent.replace(':', '').trim();
+                const dateTime = dateTimeDiv.textContent.trim().replace(/\s+/g, ' ');
                 timeline[status] = dateTime;
             }
         });
+         if (Object.keys(timeline).length === 0) {
+             document.querySelectorAll('#Timeline .timeline-box').forEach(box => {
+                const parts = box.textContent.trim().split(':');
+                if (parts.length >= 2) {
+                    const status = parts[0].trim();
+                    const dateTime = parts.slice(1).join(':').trim().replace(/\s+/g, ' ');
+                    timeline[status] = dateTime;
+                }
+            });
+        }
 
         const summaryDiv = document.querySelector('#collapsibleBuyerShipmentSummary .summary');
-        const articleCount = summaryDiv ? summaryDiv.dataset.articleCount : getText('#collapsibleBuyerShipmentSummary .article-count').replace(' Artículos', '');
-        const itemValue = summaryDiv ? summaryDiv.dataset.itemValue : getText('#collapsibleBuyerShipmentSummary .item-value').replace(' €', '');
-        const shippingPrice = summaryDiv ? summaryDiv.dataset.shippingPrice : getText('#collapsibleBuyerShipmentSummary .shipping-price').replace(' €', '');
-        const totalPrice = summaryDiv ? summaryDiv.dataset.totalPrice : getText('#labelBuyerShipmentSummary strong').replace('(', '').replace(')', '').replace(' €', '');
-
+        let articleCount = '', itemValue = '', shippingPrice = '', totalPrice = '', trustServiceCost = '0';
+        if (summaryDiv) {
+            articleCount = summaryDiv.dataset.articleCount || '';
+            itemValue = summaryDiv.dataset.itemValue || '';
+            shippingPrice = summaryDiv.dataset.shippingPrice || '';
+            totalPrice = summaryDiv.dataset.totalPrice || '';
+            trustServiceCost = summaryDiv.dataset.internalInsurance || '0';
+        } else {
+            articleCount = getText('#collapsibleBuyerShipmentSummary .d-flex span.article-count')?.replace(/\s*Artículos|\s*Articles/i, '').trim() ||
+                           getText('#collapsibleBuyerShipmentSummary .article-count')?.replace(/\s*Artículos|\s*Articles/i, '').trim();
+            itemValue = getText('#collapsibleBuyerShipmentSummary .d-flex span.item-value')?.replace(/[€$]/g, '').trim() ||
+                        getText('#collapsibleBuyerShipmentSummary .item-value')?.replace(/[€$]/g, '').trim();
+            shippingPrice = getText('#collapsibleBuyerShipmentSummary .d-flex span.shipping-price')?.replace(/[€$]/g, '').trim() ||
+                            getText('#collapsibleBuyerShipmentSummary .shipping-price')?.replace(/[€$]/g, '').trim();
+            const trustServiceElement = Array.from(document.querySelectorAll('#collapsibleBuyerShipmentSummary .d-flex'))
+                                          .find(el => el.querySelector('span.flex-grow-1')?.textContent.match(/Servicio TRUST|TRUST Service/i));
+            if (trustServiceElement) {
+                trustServiceCost = trustServiceElement.querySelector('span:not(.flex-grow-1)')?.textContent.replace(/[€$]/g, '').trim() || '0';
+            }
+            totalPrice = getText('#labelBuyerShipmentSummary strong')?.replace(/[()€$\s]/g, '').trim() ||
+                         getText('#collapsibleBuyerShipmentSummary .d-flex.total span.strong.total, #collapsibleBuyerShipmentSummary .d-flex span.total.strong')?.replace(/[€$]/g, '').trim();
+        }
 
         const sellerAddressDiv = document.querySelector('#collapsibleSellerAddress .text-break');
         const sellerDisplayName = sellerAddressDiv ? getText('.Name', sellerAddressDiv) : '';
@@ -102,117 +135,222 @@
         let shippingTracked = 'No';
         let shippingTrust = 'No';
         if (shippingMethodDd) {
-            shippingMethodName = shippingMethodDd.childNodes[1] ? shippingMethodDd.childNodes[1].textContent.trim() : ''; // First span after info icon
-             const trackingInfoDiv = shippingMethodDd.querySelector('div.text-danger');
-             if (trackingInfoDiv) {
-                if (trackingInfoDiv.textContent.includes('Envío no certificado')) {
-                    shippingTracked = 'No';
-                } else if (trackingInfoDiv.textContent.includes('Envío certificado')) { // Assuming it might say this
-                    shippingTracked = 'Sí';
+            let firstChildNode = shippingMethodDd.childNodes[1];
+            if (firstChildNode && firstChildNode.nodeType === Node.TEXT_NODE) {
+                shippingMethodName = firstChildNode.textContent.trim();
+            } else if (firstChildNode && firstChildNode.nodeType === Node.ELEMENT_NODE && firstChildNode.tagName === 'SPAN' && !firstChildNode.classList.contains('ms-1')) {
+                 shippingMethodName = firstChildNode.textContent.trim();
+            } else {
+                const allNodes = Array.from(shippingMethodDd.childNodes);
+                const textNode = allNodes.find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0);
+                if (textNode) shippingMethodName = textNode.textContent.trim();
+                else if (shippingMethodDd.querySelector('span:not([class])')) shippingMethodName = shippingMethodDd.querySelector('span:not([class])').textContent.trim();
+            }
+            const trackingInfoDiv = shippingMethodDd.querySelector('div.text-success, div.text-danger');
+            if (trackingInfoDiv) {
+                const trackingText = trackingInfoDiv.textContent.toLowerCase();
+                if (trackingText.includes('con seguimiento') || trackingText.includes('with tracking')) shippingTracked = 'Sí';
+                else if (trackingText.includes('envío no certificado') || trackingText.includes('untracked shipping')) shippingTracked = 'No';
+                if (trackingText.includes('servicio trust') || trackingText.includes('trust service')) {
+                    shippingTrust = trackingText.includes(' no') ? 'No' : 'Sí';
                 }
-                if (trackingInfoDiv.textContent.includes('Servicio TRUST') && trackingInfoDiv.textContent.includes('No')) {
-                     shippingTrust = 'No';
-                } else if (trackingInfoDiv.textContent.includes('Servicio TRUST') && !trackingInfoDiv.textContent.includes('No')) { // If it just says "Servicio TRUST"
-                     shippingTrust = 'Sí';
-                }
-             }
+            }
         }
-
 
         const evalDiv = document.querySelector('#collapsibleEvaluation');
         let evalDate = '', evalOverall = '', evalItemDesc = '', evalPackaging = '', evalComment = '';
         if (evalDiv) {
             const evalDateEl = evalDiv.querySelector('.d-flex.justify-content-between > div');
             evalDate = evalDateEl ? evalDateEl.textContent.trim().replace(/\s+/g, ' ') : '';
-
             const dts = evalDiv.querySelectorAll('dl dt');
             dts.forEach(dt => {
                 const dd = dt.nextElementSibling;
                 if (dd) {
                     const ratingSpan = dd.querySelector('span[title]');
-                    const ratingText = ratingSpan ? ratingSpan.getAttribute('title') : (dd.querySelector('.fst-italic') ? dd.querySelector('.fst-italic').textContent.trim() : '');
-
-                    if (dt.textContent.includes('Evaluación general:')) evalOverall = ratingText;
-                    else if (dt.textContent.includes('Descripción del artículo:')) evalItemDesc = ratingText;
-                    else if (dt.textContent.includes('Empaquetado:')) evalPackaging = ratingText;
-                    else if (dt.textContent.includes('Comentario:')) evalComment = ratingText;
+                    const ratingTextItalic = dd.querySelector('.fst-italic');
+                    let rating = '';
+                    if (ratingSpan) rating = ratingSpan.getAttribute('title');
+                    if (ratingTextItalic && ratingTextItalic.textContent.trim()) {
+                        rating = ratingTextItalic.textContent.trim() + (rating ? ` (${rating})` : '');
+                    } else if (!rating && dd.textContent.trim()) {
+                        rating = dd.textContent.trim();
+                    }
+                    const dtText = dt.textContent.toLowerCase();
+                    if (dtText.includes('evaluación general') || dtText.includes('overall evaluation')) evalOverall = rating;
+                    else if (dtText.includes('descripción del artículo') || dtText.includes('item description')) evalItemDesc = rating;
+                    else if (dtText.includes('empaquetado') || dtText.includes('packaging')) evalPackaging = rating;
+                    else if (dtText.includes('comentario') || dtText.includes('comment')) evalComment = dd.querySelector('.fst-italic')?.textContent.trim() || dd.textContent.trim();
                 }
             });
         }
 
-
-        // General Info Headers & Row
         const generalHeaders = [
             'OrderID', 'SellerUsername', 'SellerLocation', 'SellerDisplayName', 'SellerStreet', 'SellerCityZip', 'SellerCountry',
             'DatePaid', 'DateShipped', 'DateReceived',
-            'ArticleCount', 'ItemValue', 'ShippingCost', 'TotalPrice',
+            'ArticleCount', 'ItemValue', 'ShippingCost', 'TrustServiceCost', 'TotalPrice',
             'BuyerName', 'BuyerStreet', 'BuyerCityZip', 'BuyerCountry',
             'ShippingMethod', 'ShippingTracked', 'ShippingTrustService',
             'EvaluationDate', 'EvalOverall', 'EvalItemDesc', 'EvalPackaging', 'EvalComment'
         ];
         csvRows.push(generalHeaders.map(sanitizeForCSV).join(','));
-
         const generalData = [
             orderId, sellerUsername, sellerLocation, sellerDisplayName, sellerStreet, sellerCityZip, sellerCountry,
-            timeline['Pagado'] || '', timeline['Enviado'] || '', timeline['Recibido'] || '',
-            articleCount, itemValue, shippingPrice, totalPrice,
+            timeline['Pagado'] || timeline['Paid'] || '',
+            timeline['Enviado'] || timeline['Shipped'] || '',
+            timeline['Recibido'] || timeline['Received'] || '',
+            articleCount, itemValue, shippingPrice, trustServiceCost, totalPrice,
             buyerName, buyerStreet, buyerCityZip, buyerCountry,
             shippingMethodName, shippingTracked, shippingTrust,
             evalDate, evalOverall, evalItemDesc, evalPackaging, evalComment
         ];
         csvRows.push(generalData.map(sanitizeForCSV).join(','));
-        csvRows.push(''); // Spacer row
+        csvRows.push('');
 
-        // --- Articles ---
-        const articleTable = document.querySelector('table.product-table'); // More robust selector
-        if (!articleTable) {
-            console.error("Article table not found!");
-            alert("No se pudo encontrar la tabla de artículos.");
+        const articleTables = document.querySelectorAll('table.product-table');
+        if (articleTables.length === 0) {
+            console.error("No article tables found!");
+            alert("No se pudo encontrar ninguna tabla de artículos.");
             return;
         }
 
-        const articleHeaders = [
-            'ArticleID', 'ProductID', 'Quantity', 'Name', 'LocalizedName', 'Expansion',
-            'CollectorNum', 'Rarity', 'Condition', 'Language', 'IsFoil', 'PricePerUnit', 'Comment'
-        ];
-        csvRows.push(articleHeaders.map(sanitizeForCSV).join(','));
+        articleTables.forEach(articleTable => {
+            const categoryHeaderElement = articleTable.closest('.category-subsection')?.querySelector('h3');
+            const categoryName = categoryHeaderElement ? categoryHeaderElement.textContent.trim() : 'Artículos';
+            const isPokemonCategory = categoryName.toLowerCase().includes('pokémon') || categoryName.toLowerCase().includes('pokemon');
 
-        const articleRows = articleTable.querySelectorAll('tbody tr[data-article-id]');
-        articleRows.forEach(row => {
-            const articleData = [];
-            articleData.push(row.dataset.articleId || '');
-            articleData.push(row.dataset.productId || '');
-            articleData.push(getText('td.amount', row).replace('x', '').trim());
-            articleData.push(getText('td.name a', row));
-            articleData.push(getText('td.name div.small', row));
-            articleData.push(getAttr('div.expansion a', 'title', row.querySelector('td.info')) || row.dataset.expansionName || '');
-            articleData.push(getText('span.collector-num', row.querySelector('td.info')));
+            csvRows.push([sanitizeForCSV(`--- ${categoryName} ---`)].join(','));
 
-            const raritySymbol = row.querySelector('td.info span.rarity-symbol svg[title]');
-            articleData.push(raritySymbol ? raritySymbol.getAttribute('title') : '');
+            let articleHeaders = [
+                'ArticleID', 'ProductID', 'Quantity', 'Name', 'LocalizedName', 'Expansion',
+                'CollectorNum', 'Rarity', 'Condition', 'Language'
+            ];
 
-            articleData.push(getText('a.article-condition span.badge', row.querySelector('td.info')));
+            if (isPokemonCategory) {
+                articleHeaders.push('IsReverseHolo', 'IsFirstEdition');
+            } else { // For Magic and others
+                articleHeaders.push('IsFoil', 'IsPlayset');
+            }
+            // Common extras for all (after game-specific ones)
+            articleHeaders.push('IsSigned', 'IsAltered');
+            // Common final columns
+            articleHeaders.push('PricePerUnit', 'Comment');
 
-            const langIcon = row.querySelector('td.info div.col-icon span.icon[title]');
-            articleData.push(langIcon ? langIcon.getAttribute('title') : '');
+            csvRows.push(articleHeaders.map(sanitizeForCSV).join(','));
 
-            const foilIcon = row.querySelector('td.info span.extras span.icon[title="Foil"]');
-            articleData.push(foilIcon ? 'Sí' : 'No');
+            const articleRows = articleTable.querySelectorAll('tbody tr[data-article-id]');
+            articleRows.forEach(row => {
+                const articleData = [];
+                articleData.push(row.dataset.articleId || '');
+                articleData.push(row.dataset.productId || '');
+                articleData.push(getText('td.amount', row).replace('x', '').trim());
+                const cardName = getText('td.name a', row);
+                const localizedCardName = getText('td.name div.small', row);
+                articleData.push(cardName);
+                articleData.push(localizedCardName);
 
-            articleData.push(getText('td.price', row).replace('€', '').trim());
-            articleData.push(getText('p.comment', row.querySelector('td.info')));
+                const infoCell = row.querySelector('td.info');
+                if (infoCell) {
+                    articleData.push(getAttr('div.expansion a', 'title', infoCell) || row.dataset.expansionName || '');
+                    articleData.push(getText('span.collector-num', infoCell));
 
-            csvRows.push(articleData.map(sanitizeForCSV).join(','));
+                    // --- Rarity Extraction v5 (Prioritize symbol title) ---
+                    let rarityText = '';
+                    const raritySymbolElement = infoCell.querySelector('span.rarity-symbol');
+                    if (raritySymbolElement) {
+                        // Try title on SVG first, then on the span itself, then data-bs-original-title
+                        rarityText = raritySymbolElement.querySelector('svg')?.getAttribute('title') ||
+                                     raritySymbolElement.getAttribute('title') ||
+                                     raritySymbolElement.getAttribute('data-bs-original-title'); // For Bootstrap tooltips
+                    }
+
+                    // If still no rarity from symbol title (e.g., structure is different or no title),
+                    // and it's Pokémon, we might try to find textual rarity as a last resort.
+                    // However, based on your feedback, the title attribute IS the primary source.
+                    if (!rarityText && isPokemonCategory) {
+                        // Fallback to find any text that looks like a rarity, but this is less reliable
+                        const textElements = infoCell.querySelectorAll('div:not(.expansion):not(.col-icon):not(.col-extras) > *:not(a):not(span.badge):not(span.icon):not(.collector-num):not(.rarity-symbol), span:not(.badge):not(.icon):not(.collector-num):not(.extras):not(.expansion-symbol):not(.rarity-symbol)');
+                        for (const el of textElements) {
+                            const text = el.textContent.trim();
+                            if (text && text.length > 1 && text.length < 40 && text !== localizedCardName && text !== cardName &&
+                                text.match(/\b(Common|Uncommon|Rare|Holo|Reverse|Radiant|Amazing|Secret|Hyper|Art|Illustration|VMAX|VSTAR|GX|ex|EX|V|BREAK|Promo|Trainer Gallery|CHR|CSR)\b/i)) {
+                                rarityText = text;
+                                break;
+                            }
+                        }
+                    }
+                    articleData.push(rarityText || ''); // Ensure we push something even if empty
+                    // --- End Rarity Extraction ---
+
+                    articleData.push(getText('a.article-condition span.badge', infoCell));
+                    const langIcon = infoCell.querySelector('div.col-icon span.icon[title]');
+                    articleData.push(langIcon ? langIcon.getAttribute('title') : '');
+
+                    const extrasSpan = infoCell.querySelector('span.extras');
+                    let isFoil = 'No', isReverseHolo = 'No', isFirstEdition = 'No',
+                        isSigned = 'No', isAltered = 'No', isPlayset = 'No';
+
+                    if (extrasSpan) {
+                        if (isPokemonCategory) {
+                            if (extrasSpan.querySelector('span.icon[title*="Reverse Holo"], span.icon[title*="Reverse Foil"]')) {
+                                isReverseHolo = 'Sí';
+                            }
+                            if (extrasSpan.querySelector('span.icon[title*="First Edition"], span.icon[title*="Primera Edición"], span.icon[data-bs-original-title*="First Edition"], span.icon[data-bs-original-title*="Primera Edición"]')) {
+                                isFirstEdition = 'Sí';
+                            }
+                        } else { // For Magic and other games
+                            if (extrasSpan.querySelector('span.icon[title*="Foil"]:not([title*="Reverse"]), span.icon[title*="Holo"]:not([title*="Reverse"])')) {
+                                isFoil = 'Sí';
+                            }
+                            if (extrasSpan.querySelector('span.icon[title*="Playset"]')) {
+                                isPlayset = 'Sí';
+                            }
+                        }
+                        if (extrasSpan.querySelector('span.icon[title*="Firmado"], span.icon[title*="Signed"]')) {
+                            isSigned = 'Sí';
+                        }
+                        if (extrasSpan.querySelector('span.icon[title*="Alterado"], span.icon[title*="Altered"]')) {
+                            isAltered = 'Sí';
+                        }
+                    }
+
+                    if (isPokemonCategory) {
+                        articleData.push(isReverseHolo, isFirstEdition);
+                    } else {
+                        articleData.push(isFoil, isPlayset);
+                    }
+                    articleData.push(isSigned, isAltered);
+
+                    articleData.push(getText('td.price', row).replace(/[€$]/g, '').trim());
+                    articleData.push(getText('p.comment', infoCell));
+                } else {
+                    let emptyFieldCount = 5;
+                    if (isPokemonCategory) emptyFieldCount += 2; else emptyFieldCount += 2;
+                    emptyFieldCount += 2;
+                    emptyFieldCount += 2;
+                    for(let i=0; i < emptyFieldCount; i++) articleData.push('');
+                }
+                csvRows.push(articleData.map(sanitizeForCSV).join(','));
+            });
+            csvRows.push('');
         });
 
+        const date = new Date();
+        const year = date.getFullYear();
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const day = date.getDate().toString().padStart(2, '0');
+        const formattedDate = `${year}${month}${day}`;
+        const safeSellerUsername = sanitizeForFilename(sellerUsername);
+
+        const csvFilename = `cardmarket_${formattedDate}_${safeSellerUsername}_order_${orderId || 'export'}.csv`;
         const csvString = csvRows.join('\n');
-        downloadCSV(csvString, `cardmarket_order_${orderId || 'export'}.csv`);
+        downloadCSV(csvString, csvFilename);
     }
 
     function downloadCSV(csvContent, fileName) {
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const BOM = "\uFEFF";
+        const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
-        if (link.download !== undefined) { // Feature detection
+        if (link.download !== undefined) {
             const url = URL.createObjectURL(blob);
             link.setAttribute("href", url);
             link.setAttribute("download", fileName);
@@ -222,19 +360,18 @@
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
         } else {
-            // Fallback for older browsers (or if download attribute is not supported)
             console.error("Download attribute not supported. CSV content logged to console.");
             console.log(csvContent);
-            GM_setClipboard(csvContent);
-            alert("El navegador no soporta la descarga directa. El CSV se ha copiado al portapapeles y se ha mostrado en la consola.");
+            GM_setClipboard(BOM + csvContent);
+            alert("El navegador no soporta la descarga directa. El CSV se ha copiado al portapapeles y se ha mostrado en la consola. Asegúrate de pegar en un editor que entienda UTF-8.");
         }
     }
 
-    // --- Add Button to Page ---
-    const exportButton = document.createElement('button');
-    exportButton.textContent = 'Exportar Pedido a CSV';
-    exportButton.className = 'export-csv-button';
-    exportButton.addEventListener('click', extractOrderData);
-    document.body.appendChild(exportButton);
-
+    if (!document.querySelector('.export-csv-button')) {
+        const exportButton = document.createElement('button');
+        exportButton.textContent = 'Exportar Pedido a CSV';
+        exportButton.className = 'export-csv-button';
+        exportButton.addEventListener('click', extractOrderData);
+        document.body.appendChild(exportButton);
+    }
 })();
