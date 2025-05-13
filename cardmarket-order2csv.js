@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Cardmarket Order Exporter to CSV (Direct Rarity Title & Data-Language)
+// @name         Cardmarket Order Exporter to CSV (Direct Rarity Title & data-language from TR)
 // @namespace    http://tampermonkey.net/
-// @version      1.9.5
-// @description  Extracts Cardmarket order details. Prioritizes rarity-symbol title for rarity. Uses data-language for Language column.
+// @version      1.9.6
+// @description  Extracts Cardmarket order details. Prioritizes rarity-symbol title for rarity. Correctly uses data-language from TR for Language column.
 // @author       Your Name (Modified by AI)
 // @match        https://www.cardmarket.com/*/*/Orders/*
 // @grant        GM_addStyle
@@ -222,17 +222,15 @@
 
             let articleHeaders = [
                 'ArticleID', 'ProductID', 'Quantity', 'Name', 'LocalizedName', 'Expansion',
-                'CollectorNum', 'Rarity', 'Condition', 'Language' // Language es la columna que queremos llenar con data-language
+                'CollectorNum', 'Rarity', 'Condition', 'Language'
             ];
 
             if (isPokemonCategory) {
                 articleHeaders.push('IsReverseHolo', 'IsFirstEdition');
-            } else { // For Magic and others
+            } else {
                 articleHeaders.push('IsFoil', 'IsPlayset');
             }
-            // Common extras for all (after game-specific ones)
             articleHeaders.push('IsSigned', 'IsAltered');
-            // Common final columns
             articleHeaders.push('PricePerUnit', 'Comment');
 
             csvRows.push(articleHeaders.map(sanitizeForCSV).join(','));
@@ -240,6 +238,7 @@
             const articleRows = articleTable.querySelectorAll('tbody tr[data-article-id]');
             articleRows.forEach(row => {
                 const articleData = [];
+                // Datos directamente del <tr> o sus celdas directas
                 articleData.push(row.dataset.articleId || '');
                 articleData.push(row.dataset.productId || '');
                 articleData.push(getText('td.amount', row).replace('x', '').trim());
@@ -249,19 +248,21 @@
                 articleData.push(localizedCardName);
 
                 const infoCell = row.querySelector('td.info');
-                if (infoCell) {
-                    articleData.push(getAttr('div.expansion a', 'title', infoCell) || row.dataset.expansionName || '');
-                    articleData.push(getText('span.collector-num', infoCell));
 
-                    // --- Rarity Extraction v5 (Prioritize symbol title) ---
-                    let rarityText = '';
+                // Expansion (de infoCell o data-expansion-name de la fila)
+                articleData.push(infoCell ? (getAttr('div.expansion a', 'title', infoCell) || row.dataset.expansionName || '') : (row.dataset.expansionName || ''));
+                // Collector Number (de infoCell)
+                articleData.push(infoCell ? getText('span.collector-num', infoCell) : '');
+                // Rarity (de infoCell)
+                let rarityText = '';
+                if (infoCell) {
                     const raritySymbolElement = infoCell.querySelector('span.rarity-symbol');
                     if (raritySymbolElement) {
                         rarityText = raritySymbolElement.querySelector('svg')?.getAttribute('title') ||
                                      raritySymbolElement.getAttribute('title') ||
                                      raritySymbolElement.getAttribute('data-bs-original-title');
                     }
-                    if (!rarityText && isPokemonCategory) {
+                    if (!rarityText && isPokemonCategory) { // Fallback para Pokémon si es necesario
                         const textElements = infoCell.querySelectorAll('div:not(.expansion):not(.col-icon):not(.col-extras) > *:not(a):not(span.badge):not(span.icon):not(.collector-num):not(.rarity-symbol), span:not(.badge):not(.icon):not(.collector-num):not(.extras):not(.expansion-symbol):not(.rarity-symbol)');
                         for (const el of textElements) {
                             const text = el.textContent.trim();
@@ -272,63 +273,46 @@
                             }
                         }
                     }
-                    articleData.push(rarityText || '');
-                    // --- End Rarity Extraction ---
+                }
+                articleData.push(rarityText || '');
+                // Condition (de infoCell)
+                articleData.push(infoCell ? getText('a.article-condition span.badge', infoCell) : '');
 
-                    articleData.push(getText('a.article-condition span.badge', infoCell));
+                // === Language (SIEMPRE de data-language del <tr>) ===
+                const languageValue = row.getAttribute('data-language');
+                console.log(`Article: ${cardName}, data-language from TR: "${languageValue}"`); // Para depuración
+                articleData.push(languageValue || '');
+                // === Fin Language ===
 
-                    // === INICIO DE LA MODIFICACIÓN PARA EL IDIOMA (usar data-language del TR) ===
-                    articleData.push(row.dataset.language || ''); // Obtener el valor de data-language del <tr>
-                    // === FIN DE LA MODIFICACIÓN PARA EL IDIOMA ===
-
-
+                // Extras (IsFoil, IsPlayset, IsSigned, IsAltered - dependen de infoCell)
+                let isFoil = 'No', isReverseHolo = 'No', isFirstEdition = 'No',
+                    isSigned = 'No', isAltered = 'No', isPlayset = 'No';
+                if (infoCell) {
                     const extrasSpan = infoCell.querySelector('span.extras');
-                    let isFoil = 'No', isReverseHolo = 'No', isFirstEdition = 'No',
-                        isSigned = 'No', isAltered = 'No', isPlayset = 'No';
-
                     if (extrasSpan) {
                         if (isPokemonCategory) {
-                            if (extrasSpan.querySelector('span.icon[title*="Reverse Holo"], span.icon[title*="Reverse Foil"]')) {
-                                isReverseHolo = 'Sí';
-                            }
-                            if (extrasSpan.querySelector('span.icon[title*="First Edition"], span.icon[title*="Primera Edición"], span.icon[data-bs-original-title*="First Edition"], span.icon[data-bs-original-title*="Primera Edición"]')) {
-                                isFirstEdition = 'Sí';
-                            }
-                        } else { // For Magic and other games
-                            if (extrasSpan.querySelector('span.icon[title*="Foil"]:not([title*="Reverse"]), span.icon[title*="Holo"]:not([title*="Reverse"])')) {
-                                isFoil = 'Sí';
-                            }
-                            if (extrasSpan.querySelector('span.icon[title*="Playset"]')) {
-                                isPlayset = 'Sí';
-                            }
+                            if (extrasSpan.querySelector('span.icon[title*="Reverse Holo"], span.icon[title*="Reverse Foil"]')) isReverseHolo = 'Sí';
+                            if (extrasSpan.querySelector('span.icon[title*="First Edition"], span.icon[title*="Primera Edición"], span.icon[data-bs-original-title*="First Edition"], span.icon[data-bs-original-title*="Primera Edición"]')) isFirstEdition = 'Sí';
+                        } else {
+                            if (extrasSpan.querySelector('span.icon[title*="Foil"]:not([title*="Reverse"]), span.icon[title*="Holo"]:not([title*="Reverse"])')) isFoil = 'Sí';
+                            if (extrasSpan.querySelector('span.icon[title*="Playset"]')) isPlayset = 'Sí';
                         }
-                        if (extrasSpan.querySelector('span.icon[title*="Firmado"], span.icon[title*="Signed"]')) {
-                            isSigned = 'Sí';
-                        }
-                        if (extrasSpan.querySelector('span.icon[title*="Alterado"], span.icon[title*="Altered"]')) {
-                            isAltered = 'Sí';
-                        }
+                        if (extrasSpan.querySelector('span.icon[title*="Firmado"], span.icon[title*="Signed"]')) isSigned = 'Sí';
+                        if (extrasSpan.querySelector('span.icon[title*="Alterado"], span.icon[title*="Altered"]')) isAltered = 'Sí';
                     }
-
-                    if (isPokemonCategory) {
-                        articleData.push(isReverseHolo, isFirstEdition);
-                    } else {
-                        articleData.push(isFoil, isPlayset);
-                    }
-                    articleData.push(isSigned, isAltered);
-
-                    articleData.push(getText('td.price', row).replace(/[€$]/g, '').trim());
-                    articleData.push(getText('p.comment', infoCell));
-                } else {
-                    // Si no hay infoCell, rellenar con campos vacíos
-                    let emptyFieldCount = 5; // Expansion, CollectorNum, Rarity, Condition, Language
-                    if (isPokemonCategory) emptyFieldCount += 2; // IsReverseHolo, IsFirstEdition
-                    else emptyFieldCount += 2; // IsFoil, IsPlayset
-                    emptyFieldCount += 2; // IsSigned, IsAltered
-                    for(let i=0; i < emptyFieldCount; i++) articleData.push('');
-                    articleData.push(getText('td.price', row).replace(/[€$]/g, '').trim());
-                    articleData.push('');
                 }
+                if (isPokemonCategory) {
+                    articleData.push(isReverseHolo, isFirstEdition);
+                } else {
+                    articleData.push(isFoil, isPlayset);
+                }
+                articleData.push(isSigned, isAltered);
+
+                // PricePerUnit (de td.price en la fila)
+                articleData.push(getText('td.price', row).replace(/[€$]/g, '').trim());
+                // Comment (de infoCell)
+                articleData.push(infoCell ? getText('p.comment', infoCell) : '');
+
                 csvRows.push(articleData.map(sanitizeForCSV).join(','));
             });
             csvRows.push('');
