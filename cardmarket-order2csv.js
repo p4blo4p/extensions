@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cardmarket Order Exporter to CSV (Direct Rarity Title & data-language from TR)
 // @namespace    http://tampermonkey.net/
-// @version      1.9.8
+// @version      1.9.9
 // @description  Extracts Cardmarket order details. Prioritizes rarity-symbol title for rarity. Uses data-language from TR for Language. Displays version on button.
 // @author       Your Name (Modified by AI)
 // @match        https://www.cardmarket.com/*/*/Orders/*
@@ -12,7 +12,16 @@
 (function() {
     'use strict';
 
-    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : 'N/A';
+    // Intenta obtener la versión del script de una manera más robusta
+    let scriptVersionText = 'N/A';
+    try {
+        if (typeof GM_info !== 'undefined' && GM_info.script && typeof GM_info.script.version === 'string') {
+            scriptVersionText = GM_info.script.version;
+        }
+    } catch (e) {
+        console.error("Error al acceder a GM_info:", e);
+        // scriptVersionText permanece 'N/A'
+    }
 
     GM_addStyle(`
         .export-csv-button {
@@ -28,7 +37,7 @@
             cursor: pointer;
             border-radius: 4px;
             position: fixed;
-            top: 150px; /* Ajustado para evitar superposición con la barra de navegación de MKM */
+            top: 150px;
             right: 20px;
             z-index: 9999;
         }
@@ -39,9 +48,9 @@
             return '';
         }
         str = String(str);
-        str = str.replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ').trim(); // Reemplaza saltos de línea y múltiples espacios
+        str = str.replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ').trim();
         if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-            str = `"${str.replace(/"/g, '""')}"`; // Envuelve en comillas si contiene coma, comillas o saltos de línea
+            str = `"${str.replace(/"/g, '""')}"`;
         }
         return str;
     }
@@ -82,11 +91,10 @@
             const dateTimeDiv = box.querySelector('div:nth-child(2)');
             if (statusDiv && dateTimeDiv) {
                 const status = statusDiv.textContent.replace(':', '').trim();
-                const dateTime = dateTimeDiv.textContent.trim().replace(/\s+/g, ' '); // Normaliza espacios
+                const dateTime = dateTimeDiv.textContent.trim().replace(/\s+/g, ' ');
                 timeline[status] = dateTime;
             }
         });
-         // Fallback si la estructura anterior no funciona (menos específico)
          if (Object.keys(timeline).length === 0) {
              document.querySelectorAll('#Timeline .timeline-box').forEach(box => {
                 const parts = box.textContent.trim().split(':');
@@ -101,13 +109,13 @@
         const summaryDiv = document.querySelector('#collapsibleBuyerShipmentSummary .summary');
         let articleCount = '', itemValue = '', shippingPrice = '', totalPrice = '', trustServiceCost = '0';
 
-        if (summaryDiv && summaryDiv.dataset.articleCount) { // Nueva estructura con data-attributes
+        if (summaryDiv && summaryDiv.dataset.articleCount) {
             articleCount = summaryDiv.dataset.articleCount || '';
             itemValue = summaryDiv.dataset.itemValue || '';
             shippingPrice = summaryDiv.dataset.shippingPrice || '';
             totalPrice = summaryDiv.dataset.totalPrice || '';
-            trustServiceCost = summaryDiv.dataset.internalInsurance || '0'; // Puede llamarse diferente, ajustar si es necesario
-        } else { // Estructura antigua o fallback
+            trustServiceCost = summaryDiv.dataset.internalInsurance || '0';
+        } else {
             articleCount = getText('#collapsibleBuyerShipmentSummary .d-flex span.article-count, #collapsibleBuyerShipmentSummary span.article-count')?.replace(/\s*Artículos|\s*Articles/i, '').trim();
             itemValue = getText('#collapsibleBuyerShipmentSummary .d-flex span.item-value, #collapsibleBuyerShipmentSummary span.item-value')?.replace(/[€$]/g, '').trim();
             shippingPrice = getText('#collapsibleBuyerShipmentSummary .d-flex span.shipping-price, #collapsibleBuyerShipmentSummary span.shipping-price')?.replace(/[€$]/g, '').trim();
@@ -138,28 +146,26 @@
         let shippingTrust = 'No';
 
         if (shippingMethodDd) {
-            // Intenta obtener el nombre del método de envío, que puede ser un nodo de texto o un span
-            let firstChildNode = shippingMethodDd.childNodes[1]; // Saltar el icono de info
+            let firstChildNode = shippingMethodDd.childNodes[1];
             if (firstChildNode && firstChildNode.nodeType === Node.TEXT_NODE) {
                 shippingMethodName = firstChildNode.textContent.trim();
-            } else if (firstChildNode && firstChildNode.nodeType === Node.ELEMENT_NODE && firstChildNode.tagName === 'SPAN' && !firstChildNode.classList.contains('ms-1') /*Evitar el "(max. Xg)"*/) {
+            } else if (firstChildNode && firstChildNode.nodeType === Node.ELEMENT_NODE && firstChildNode.tagName === 'SPAN' && !firstChildNode.classList.contains('ms-1')) {
                  shippingMethodName = firstChildNode.textContent.trim();
             } else {
-                // Fallback más general si la estructura es diferente
                 const allNodes = Array.from(shippingMethodDd.childNodes);
                 const textNode = allNodes.find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0);
                 if (textNode) shippingMethodName = textNode.textContent.trim();
-                else if (shippingMethodDd.querySelector('span:not([class])')) shippingMethodName = shippingMethodDd.querySelector('span:not([class])').textContent.trim(); // Último recurso
+                else if (shippingMethodDd.querySelector('span:not([class])')) shippingMethodName = shippingMethodDd.querySelector('span:not([class])').textContent.trim();
             }
 
-            const trackingInfoDiv = shippingMethodDd.querySelector('div.text-success, div.text-danger'); // Contenedor de "con seguimiento" / "Servicio TRUST"
+            const trackingInfoDiv = shippingMethodDd.querySelector('div.text-success, div.text-danger');
             if (trackingInfoDiv) {
                 const trackingText = trackingInfoDiv.textContent.toLowerCase();
                 if (trackingText.includes('con seguimiento') || trackingText.includes('with tracking')) shippingTracked = 'Sí';
                 else if (trackingText.includes('envío no certificado') || trackingText.includes('untracked shipping')) shippingTracked = 'No';
 
                 if (trackingText.includes('servicio trust') || trackingText.includes('trust service')) {
-                    shippingTrust = trackingText.includes(' no') ? 'No' : 'Sí'; // "Servicio TRUST Sí" o "Servicio TRUST No"
+                    shippingTrust = trackingText.includes(' no') ? 'No' : 'Sí';
                 }
             }
         }
@@ -168,21 +174,21 @@
         const evalDiv = document.querySelector('#collapsibleEvaluation');
         let evalDate = '', evalOverall = '', evalItemDesc = '', evalPackaging = '', evalComment = '';
         if (evalDiv) {
-            const evalDateEl = evalDiv.querySelector('.d-flex.justify-content-between > div'); // La fecha está en un div al lado del título "Evaluación"
+            const evalDateEl = evalDiv.querySelector('.d-flex.justify-content-between > div');
             evalDate = evalDateEl ? evalDateEl.textContent.trim().replace(/\s+/g, ' ') : '';
 
-            const dts = evalDiv.querySelectorAll('dl dt'); // Títulos de las categorías de evaluación
+            const dts = evalDiv.querySelectorAll('dl dt');
             dts.forEach(dt => {
-                const dd = dt.nextElementSibling; // El valor de la evaluación
+                const dd = dt.nextElementSibling;
                 if (dd) {
-                    const ratingSpan = dd.querySelector('span[title], span[data-bs-original-title]'); // El icono con el tooltip
-                    const ratingTextItalic = dd.querySelector('.fst-italic'); // El texto en cursiva (Muy Bien, Bien, etc.)
+                    const ratingSpan = dd.querySelector('span[title], span[data-bs-original-title]');
+                    const ratingTextItalic = dd.querySelector('.fst-italic');
                     let rating = '';
 
-                    if (ratingSpan) rating = ratingSpan.getAttribute('title') || ratingSpan.getAttribute('data-bs-original-title'); // Obtener el valor del tooltip (p.ej. "Very Good")
-                    if (ratingTextItalic && ratingTextItalic.textContent.trim()) { // Obtener el texto visible
-                        rating = ratingTextItalic.textContent.trim() + (rating ? ` (${rating})` : ''); // Combinarlos si ambos existen
-                    } else if (!rating && dd.textContent.trim()) { // Fallback al texto completo del dd si no hay estructura específica
+                    if (ratingSpan) rating = ratingSpan.getAttribute('title') || ratingSpan.getAttribute('data-bs-original-title');
+                    if (ratingTextItalic && ratingTextItalic.textContent.trim()) {
+                        rating = ratingTextItalic.textContent.trim() + (rating ? ` (${rating})` : '');
+                    } else if (!rating && dd.textContent.trim()) {
                         rating = dd.textContent.trim();
                     }
 
@@ -190,7 +196,7 @@
                     if (dtText.includes('evaluación general') || dtText.includes('overall evaluation')) evalOverall = rating;
                     else if (dtText.includes('descripción del artículo') || dtText.includes('item description')) evalItemDesc = rating;
                     else if (dtText.includes('empaquetado') || dtText.includes('packaging')) evalPackaging = rating;
-                    else if (dtText.includes('comentario') || dtText.includes('comment')) evalComment = dd.querySelector('.fst-italic')?.textContent.trim() || dd.textContent.trim(); // Para el comentario, solo el texto
+                    else if (dtText.includes('comentario') || dtText.includes('comment')) evalComment = dd.querySelector('.fst-italic')?.textContent.trim() || dd.textContent.trim();
                 }
             });
         }
@@ -215,7 +221,7 @@
             evalDate, evalOverall, evalItemDesc, evalPackaging, evalComment
         ];
         csvRows.push(generalData.map(sanitizeForCSV).join(','));
-        csvRows.push(''); // Blank row
+        csvRows.push('');
 
         const articleTables = document.querySelectorAll('table.product-table');
         if (articleTables.length === 0) {
@@ -238,46 +244,38 @@
 
             if (isPokemonCategory) {
                 articleHeaders.push('IsReverseHolo', 'IsFirstEdition');
-            } else { // For Magic and others
+            } else {
                 articleHeaders.push('IsFoil', 'IsPlayset');
             }
-            // Common extras for all (after game-specific ones)
             articleHeaders.push('IsSigned', 'IsAltered');
-            // Common final columns
             articleHeaders.push('PricePerUnit', 'Comment');
 
             csvRows.push(articleHeaders.map(sanitizeForCSV).join(','));
 
-            const articleRows = articleTable.querySelectorAll('tbody tr[data-article-id]'); // Filas de artículos
-            articleRows.forEach(row => { // row es el elemento <tr>
+            const articleRows = articleTable.querySelectorAll('tbody tr[data-article-id]');
+            articleRows.forEach(row => {
                 const articleData = [];
 
-                // Datos directamente del <tr> o sus celdas más predecibles
                 articleData.push(row.dataset.articleId || '');
                 articleData.push(row.dataset.productId || '');
                 articleData.push(getText('td.amount', row).replace('x', '').trim());
-                const cardName = getText('td.name a', row); // Nombre principal
-                const localizedCardName = getText('td.name div.small', row); // Nombre localizado/secundario
+                const cardName = getText('td.name a', row);
+                const localizedCardName = getText('td.name div.small', row);
                 articleData.push(cardName);
                 articleData.push(localizedCardName);
 
-                const infoCell = row.querySelector('td.info'); // Celda "Información"
+                const infoCell = row.querySelector('td.info');
 
-                // Expansión
                 articleData.push(infoCell ? (getAttr('div.expansion a', 'title', infoCell) || getAttr('div.expansion a', 'data-bs-original-title', infoCell) || row.dataset.expansionName || '') : (row.dataset.expansionName || ''));
-                // Número de coleccionista
                 articleData.push(infoCell ? getText('span.collector-num', infoCell) : '');
-                // Rareza
                 let rarityText = '';
                 if (infoCell) {
                     const raritySymbolElement = infoCell.querySelector('span.rarity-symbol');
                     if (raritySymbolElement) {
-                        // Prioridad: title del SVG, title del span, data-bs-original-title del span
                         rarityText = raritySymbolElement.querySelector('svg')?.getAttribute('title') ||
                                      raritySymbolElement.getAttribute('title') ||
                                      raritySymbolElement.getAttribute('data-bs-original-title');
                     }
-                    // Fallback para Pokémon si no se encontró rareza en el símbolo
                     if (!rarityText && isPokemonCategory) {
                         const textElements = infoCell.querySelectorAll('div:not(.expansion):not(.col-icon):not(.col-extras) > *:not(a):not(span.badge):not(span.icon):not(.collector-num):not(.rarity-symbol), span:not(.badge):not(.icon):not(.collector-num):not(.extras):not(.expansion-symbol):not(.rarity-symbol)');
                         for (const el of textElements) {
@@ -291,15 +289,11 @@
                     }
                 }
                 articleData.push(rarityText || '');
-                // Condición
                 articleData.push(infoCell ? getText('a.article-condition span.badge', infoCell) : '');
 
-                // === Language (SIEMPRE de data-language del <tr>) ===
                 const languageValue = row.getAttribute('data-language');
                 articleData.push(languageValue || '');
-                // === Fin Language ===
 
-                // Extras (Foil, Playset, Signed, Altered)
                 let isFoil = 'No', isReverseHolo = 'No', isFirstEdition = 'No',
                     isSigned = 'No', isAltered = 'No', isPlayset = 'No';
 
@@ -329,14 +323,12 @@
                 }
                 articleData.push(isSigned, isAltered);
 
-                // Precio por unidad
                 articleData.push(getText('td.price', row).replace(/[€$]/g, '').trim());
-                // Comentario
                 articleData.push(infoCell ? getText('p.comment', infoCell) : '');
 
                 csvRows.push(articleData.map(sanitizeForCSV).join(','));
             });
-            csvRows.push(''); // Blank row after each category
+            csvRows.push('');
         });
 
         const date = new Date();
@@ -352,10 +344,10 @@
     }
 
     function downloadCSV(csvContent, fileName) {
-        const BOM = "\uFEFF"; // Byte Order Mark para UTF-8
+        const BOM = "\uFEFF";
         const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
-        if (link.download !== undefined) { // Check for browser support
+        if (link.download !== undefined) {
             const url = URL.createObjectURL(blob);
             link.setAttribute("href", url);
             link.setAttribute("download", fileName);
@@ -363,9 +355,8 @@
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            URL.revokeObjectURL(url); // Clean up
+            URL.revokeObjectURL(url);
         } else {
-            // Fallback for browsers that don't support the download attribute
             console.error("Download attribute not supported. CSV content logged to console.");
             console.log(csvContent);
             GM_setClipboard(BOM + csvContent);
@@ -376,10 +367,13 @@
     // Crear y añadir el botón
     if (!document.querySelector('.export-csv-button')) {
         const exportButton = document.createElement('button');
-        exportButton.textContent = `Exportar Pedido a CSV (v${SCRIPT_VERSION})`;
+        // Construir el texto del botón aquí, asegurándose de que scriptVersionText tiene un valor.
+        exportButton.textContent = `Exportar Pedido a CSV (v${scriptVersionText})`;
         exportButton.className = 'export-csv-button';
         exportButton.addEventListener('click', extractOrderData);
         document.body.appendChild(exportButton);
+        // Para depuración, imprime el texto final del botón.
+        console.log("Texto del botón establecido a:", exportButton.textContent);
     }
 
 })();
