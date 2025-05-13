@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Cardmarket Order Exporter to CSV (Direct Rarity Title)
+// @name         Cardmarket Order Exporter to CSV (Direct Rarity Title & Data-Language)
 // @namespace    http://tampermonkey.net/
-// @version      1.9.4
-// @description  Extracts Cardmarket order details. Prioritizes rarity-symbol title for rarity. Corrects language extraction.
+// @version      1.9.5
+// @description  Extracts Cardmarket order details. Prioritizes rarity-symbol title for rarity. Uses data-language for Language column.
 // @author       Your Name (Modified by AI)
 // @match        https://www.cardmarket.com/*/*/Orders/*
 // @grant        GM_addStyle
@@ -222,7 +222,7 @@
 
             let articleHeaders = [
                 'ArticleID', 'ProductID', 'Quantity', 'Name', 'LocalizedName', 'Expansion',
-                'CollectorNum', 'Rarity', 'Condition', 'Language'
+                'CollectorNum', 'Rarity', 'Condition', 'Language' // Language es la columna que queremos llenar con data-language
             ];
 
             if (isPokemonCategory) {
@@ -277,31 +277,8 @@
 
                     articleData.push(getText('a.article-condition span.badge', infoCell));
 
-                    // === INICIO DE LA MODIFICACIÓN PARA EL IDIOMA ===
-                    let languageDetected = '';
-                    const languageColumnDiv = infoCell.querySelector('div.col-icon'); // Div que contiene el icono de idioma
-
-                    if (languageColumnDiv) {
-                        // El icono de idioma a menudo está en un span, que puede estar anidado.
-                        // Primero, intenta con un selector más específico si la estructura es consistente: span.icon > span.icon
-                        // O un selector más general: span.icon
-                        // El HTML de ejemplo muestra: <div class="col-icon col-auto"><span class="icon is-24x24"><span class="icon" title="Inglés"></span></span></div>
-                        let langSpanElement = languageColumnDiv.querySelector('span.icon > span.icon'); // Intenta span anidado primero
-
-                        if (!langSpanElement) {
-                            // Si no se encuentra el anidado (ej. la estructura es <div class="col-icon"><span class="icon" title="Idioma"></span>),
-                            // o si el título está en el span exterior del anidado, prueba con el primer span.icon.
-                            langSpanElement = languageColumnDiv.querySelector('span.icon');
-                        }
-
-                        if (langSpanElement) {
-                            // Extrae el idioma de 'title', 'data-original-title' (Bootstrap < 5), o 'data-bs-original-title' (Bootstrap 5+)
-                            languageDetected = langSpanElement.getAttribute('title') ||
-                                               langSpanElement.getAttribute('data-original-title') ||
-                                               langSpanElement.getAttribute('data-bs-original-title');
-                        }
-                    }
-                    articleData.push(languageDetected ? languageDetected.trim() : '');
+                    // === INICIO DE LA MODIFICACIÓN PARA EL IDIOMA (usar data-language del TR) ===
+                    articleData.push(row.dataset.language || ''); // Obtener el valor de data-language del <tr>
                     // === FIN DE LA MODIFICACIÓN PARA EL IDIOMA ===
 
 
@@ -344,21 +321,13 @@
                     articleData.push(getText('p.comment', infoCell));
                 } else {
                     // Si no hay infoCell, rellenar con campos vacíos
-                    // Cantidad base de campos vacíos (Expansion, CollectorNum, Rarity, Condition, Language) = 5
-                    // +2 para Foil/Playset o ReverseHolo/FirstEdition
-                    // +2 para Signed/Altered
-                    // +2 para PricePerUnit/Comment (aunque el precio puede estar en su propia celda fuera de info)
-                    // Total = 5 (base) + 2 (game-specific) + 2 (common extras) + 2 (price/comment) = 11
-                    // Corrección: PricePerUnit y Comment se manejan fuera, así que son 5+2+2 = 9 campos dentro de infoCell
                     let emptyFieldCount = 5; // Expansion, CollectorNum, Rarity, Condition, Language
                     if (isPokemonCategory) emptyFieldCount += 2; // IsReverseHolo, IsFirstEdition
                     else emptyFieldCount += 2; // IsFoil, IsPlayset
                     emptyFieldCount += 2; // IsSigned, IsAltered
-                    // PricePerUnit y Comment se añaden después, así que no los contamos aquí
                     for(let i=0; i < emptyFieldCount; i++) articleData.push('');
-                    // Rellenar precio y comentario si no hay infoCell (aunque el precio debería estar siempre)
                     articleData.push(getText('td.price', row).replace(/[€$]/g, '').trim());
-                    articleData.push(''); // Comentario vacío si no hay infoCell
+                    articleData.push('');
                 }
                 csvRows.push(articleData.map(sanitizeForCSV).join(','));
             });
