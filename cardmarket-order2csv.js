@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cardmarket Order Exporter to CSV (Direct Rarity Title & data-language from TR)
 // @namespace    http://tampermonkey.net/
-// @version      1.9.6
-// @description  Extracts Cardmarket order details. Prioritizes rarity-symbol title for rarity. Correctly uses data-language from TR for Language column.
+// @version      1.9.7
+// @description  Extracts Cardmarket order details. Prioritizes rarity-symbol title for rarity. Correctly uses data-language from TR for Language column. Displays version on button.
 // @author       Your Name (Modified by AI)
 // @match        https://www.cardmarket.com/*/*/Orders/*
 // @grant        GM_addStyle
@@ -11,6 +11,11 @@
 
 (function() {
     'use strict';
+
+    // --- Obtener la versión del script ---
+    // GM_info es un objeto proporcionado por Tampermonkey/Greasemonkey
+    // que contiene información sobre el script.
+    const scriptVersion = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : 'N/A';
 
     GM_addStyle(`
         .export-csv-button {
@@ -238,7 +243,6 @@
             const articleRows = articleTable.querySelectorAll('tbody tr[data-article-id]');
             articleRows.forEach(row => {
                 const articleData = [];
-                // Datos directamente del <tr> o sus celdas directas
                 articleData.push(row.dataset.articleId || '');
                 articleData.push(row.dataset.productId || '');
                 articleData.push(getText('td.amount', row).replace('x', '').trim());
@@ -249,11 +253,8 @@
 
                 const infoCell = row.querySelector('td.info');
 
-                // Expansion (de infoCell o data-expansion-name de la fila)
                 articleData.push(infoCell ? (getAttr('div.expansion a', 'title', infoCell) || row.dataset.expansionName || '') : (row.dataset.expansionName || ''));
-                // Collector Number (de infoCell)
                 articleData.push(infoCell ? getText('span.collector-num', infoCell) : '');
-                // Rarity (de infoCell)
                 let rarityText = '';
                 if (infoCell) {
                     const raritySymbolElement = infoCell.querySelector('span.rarity-symbol');
@@ -262,7 +263,7 @@
                                      raritySymbolElement.getAttribute('title') ||
                                      raritySymbolElement.getAttribute('data-bs-original-title');
                     }
-                    if (!rarityText && isPokemonCategory) { // Fallback para Pokémon si es necesario
+                    if (!rarityText && isPokemonCategory) {
                         const textElements = infoCell.querySelectorAll('div:not(.expansion):not(.col-icon):not(.col-extras) > *:not(a):not(span.badge):not(span.icon):not(.collector-num):not(.rarity-symbol), span:not(.badge):not(.icon):not(.collector-num):not(.extras):not(.expansion-symbol):not(.rarity-symbol)');
                         for (const el of textElements) {
                             const text = el.textContent.trim();
@@ -275,16 +276,12 @@
                     }
                 }
                 articleData.push(rarityText || '');
-                // Condition (de infoCell)
                 articleData.push(infoCell ? getText('a.article-condition span.badge', infoCell) : '');
 
-                // === Language (SIEMPRE de data-language del <tr>) ===
                 const languageValue = row.getAttribute('data-language');
-                console.log(`Article: ${cardName}, data-language from TR: "${languageValue}"`); // Para depuración
+                // console.log(`Article: ${cardName}, data-language from TR: "${languageValue}"`); // Para depuración
                 articleData.push(languageValue || '');
-                // === Fin Language ===
 
-                // Extras (IsFoil, IsPlayset, IsSigned, IsAltered - dependen de infoCell)
                 let isFoil = 'No', isReverseHolo = 'No', isFirstEdition = 'No',
                     isSigned = 'No', isAltered = 'No', isPlayset = 'No';
                 if (infoCell) {
@@ -308,9 +305,7 @@
                 }
                 articleData.push(isSigned, isAltered);
 
-                // PricePerUnit (de td.price en la fila)
                 articleData.push(getText('td.price', row).replace(/[€$]/g, '').trim());
-                // Comment (de infoCell)
                 articleData.push(infoCell ? getText('p.comment', infoCell) : '');
 
                 csvRows.push(articleData.map(sanitizeForCSV).join(','));
@@ -353,7 +348,8 @@
 
     if (!document.querySelector('.export-csv-button')) {
         const exportButton = document.createElement('button');
-        exportButton.textContent = 'Exportar Pedido a CSV';
+        // --- Modificar el texto del botón para incluir la versión ---
+        exportButton.textContent = `Exportar Pedido a CSV (v${scriptVersion})`;
         exportButton.className = 'export-csv-button';
         exportButton.addEventListener('click', extractOrderData);
         document.body.appendChild(exportButton);
