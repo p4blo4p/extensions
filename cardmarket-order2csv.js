@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cardmarket Order Exporter to CSV (Direct Rarity Title & data-language from TR)
 // @namespace    http://tampermonkey.net/
-// @version      2.0.0
-// @description  Extracts Cardmarket order details. Uses data-language from TR for Language. Hardcoded version on button for Violentmonkey. Debugging data-language.
+// @version      2.0.1
+// @description  Extracts Cardmarket order details. Uses data-language from TR for Language. Manually set version on button. Debugging data-language.
 // @author       Your Name (Modified by AI)
 // @match        https://www.cardmarket.com/*/*/Orders/*
 // @grant        GM_addStyle
@@ -12,8 +12,10 @@
 (function() {
     'use strict';
 
-    // --- CONSTANTE PARA LA VERSIÓN (actualizar manualmente si se cambia @version) ---
-    const SCRIPT_VERSION_DISPLAY = "2.0.0";
+    // =====================================================================================
+    // == NOTA PARA EL DESARROLLADOR: Actualizar manualmente la versión en el texto del botón ==
+    // == La versión actual del script (ver @version arriba) es: 2.0.1                 ==
+    // =====================================================================================
 
     GM_addStyle(`
         .export-csv-button {
@@ -65,7 +67,7 @@
     }
 
     function extractOrderData() {
-        console.log("Iniciando extractOrderData..."); // Depuración
+        console.log("Iniciando extractOrderData...");
         let csvRows = [];
 
         // --- General Order Info ---
@@ -222,10 +224,10 @@
             alert("No se pudo encontrar ninguna tabla de artículos.");
             return;
         }
-        console.log(`Encontradas ${articleTables.length} tablas de artículos.`); // Depuración
+        console.log(`Encontradas ${articleTables.length} tablas de artículos.`);
 
         articleTables.forEach((articleTable, tableIndex) => {
-            console.log(`Procesando tabla de artículos #${tableIndex + 1}`); // Depuración
+            console.log(`Procesando tabla de artículos #${tableIndex + 1}`);
             const categoryHeaderElement = articleTable.closest('.category-subsection')?.querySelector('h3');
             const categoryName = categoryHeaderElement ? categoryHeaderElement.textContent.trim() : 'Artículos';
             const isPokemonCategory = categoryName.toLowerCase().includes('pokémon') || categoryName.toLowerCase().includes('pokemon');
@@ -248,16 +250,21 @@
             csvRows.push(articleHeaders.map(sanitizeForCSV).join(','));
 
             const articleRows = articleTable.querySelectorAll('tbody tr[data-article-id]');
-            console.log(`Tabla #${tableIndex + 1}: Encontradas ${articleRows.length} filas de artículos (TRs).`); // Depuración
+            console.log(`Tabla #${tableIndex + 1}: Encontradas ${articleRows.length} filas de artículos (TRs).`);
 
-            articleRows.forEach((row, rowIndex) => { // row es el elemento <tr>
-                // --- INICIO DE LA DEPURACIÓN DETALLADA PARA data-language ---
+            articleRows.forEach((row, rowIndex) => {
                 const articleIdForDebug = row.dataset.articleId || 'ID DESCONOCIDO';
-                console.log(`Procesando fila #${rowIndex + 1} (Article ID: ${articleIdForDebug})`);
-                console.log('Elemento TR completo:', row); // Muestra el elemento TR en la consola
+                // --- DEPURACIÓN PARA data-language ---
+                // console.log(`Fila #${rowIndex + 1} (ArtID: ${articleIdForDebug}) - TR Element:`, row);
                 const languageAttrValue = row.getAttribute('data-language');
-                console.log(`Valor de data-language para Article ID ${articleIdForDebug}: "${languageAttrValue}" (Tipo: ${typeof languageAttrValue})`);
-                // --- FIN DE LA DEPURACIÓN DETALLADA ---
+                if (languageAttrValue === null) {
+                    console.warn(`Fila #${rowIndex + 1} (ArtID: ${articleIdForDebug}): data-language es NULL. El TR no tiene este atributo o no es accesible.`);
+                } else if (languageAttrValue === undefined) {
+                     console.warn(`Fila #${rowIndex + 1} (ArtID: ${articleIdForDebug}): data-language es UNDEFINED.`);
+                } else {
+                    console.log(`Fila #${rowIndex + 1} (ArtID: ${articleIdForDebug}): data-language = "${languageAttrValue}" (Tipo: ${typeof languageAttrValue})`);
+                }
+                // --- FIN DEPURACIÓN ---
 
                 const articleData = [];
 
@@ -296,8 +303,7 @@
                 articleData.push(rarityText || '');
                 articleData.push(infoCell ? getText('a.article-condition span.badge', infoCell) : '');
 
-                // Usar el valor obtenido en la depuración
-                articleData.push(languageAttrValue || ''); // Usar la variable de la depuración
+                articleData.push(languageAttrValue || '');
 
                 let isFoil = 'No', isReverseHolo = 'No', isFirstEdition = 'No',
                     isSigned = 'No', isAltered = 'No', isPlayset = 'No';
@@ -346,7 +352,7 @@
         const csvFilename = `cardmarket_${formattedDate}_${safeSellerUsername}_order_${orderId || 'export'}.csv`;
         const csvString = csvRows.join('\n');
         downloadCSV(csvString, csvFilename);
-        console.log("extractOrderData completado."); // Depuración
+        console.log("extractOrderData completado.");
     }
 
     function downloadCSV(csvContent, fileName) {
@@ -373,14 +379,15 @@
     // Crear y añadir el botón
     if (!document.querySelector('.export-csv-button')) {
         const exportButton = document.createElement('button');
-        exportButton.textContent = `Exportar Pedido a CSV (v${SCRIPT_VERSION_DISPLAY})`;
+        // == NOTA PARA EL DESARROLLADOR: Actualizar manualmente la versión aquí también ==
+        exportButton.textContent = 'Exportar Pedido a CSV (v2.0.1)';
         exportButton.className = 'export-csv-button';
         exportButton.addEventListener('click', extractOrderData);
         document.body.appendChild(exportButton);
-        console.log("Botón 'Exportar Pedido a CSV' creado con texto:", exportButton.textContent); // Depuración
+        console.log("Botón 'Exportar Pedido a CSV' creado con texto:", exportButton.textContent);
     } else {
-        console.log("El botón 'Exportar Pedido a CSV' ya existe."); // Depuración
+        console.log("El botón 'Exportar Pedido a CSV' ya existe.");
     }
-    console.log("Script de exportación de pedidos de Cardmarket (Violentmonkey fix attempt) cargado."); // Depuración
+    console.log("Script de exportación de pedidos de Cardmarket (v2.0.1) cargado.");
 
 })();
