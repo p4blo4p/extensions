@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cardmarket Order Exporter to CSV (Direct Rarity Title)
 // @namespace    http://tampermonkey.net/
-// @version      1.9.2
+// @version      1.9.3
 // @description  Extracts Cardmarket order details. Prioritizes rarity-symbol title for rarity.
 // @author       Your Name (Modified by AI)
 // @match        https://www.cardmarket.com/*/*/Orders/*
@@ -272,7 +272,7 @@
                         for (const el of textElements) {
                             const text = el.textContent.trim();
                             if (text && text.length > 1 && text.length < 40 && text !== localizedCardName && text !== cardName &&
-                                text.match(/\b(Common|Uncommon|Rare|Holo|Reverse|Radiant|Amazing|Secret|Hyper|Art|Illustration|VMAX|VSTAR|GX|ex|EX|V|BREAK|Promo|Trainer Gallery|CHR|CSR)\b/i)) {
+                                text.match(/\b(Common|Uncommon|Rare|Mythic|Special|Holo|Reverse|Radiant|Amazing|Secret|Hyper|Art|Illustration|VMAX|VSTAR|GX|ex|EX|V|BREAK|Promo|Trainer Gallery|CHR|CSR)\b/i)) {
                                 rarityText = text;
                                 break;
                             }
