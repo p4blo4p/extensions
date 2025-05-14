@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cardmarket Order Exporter to CSV (Direct Rarity Title & data-language from TR)
 // @namespace    http://tampermonkey.net/
-// @version      2.0.1
-// @description  Extracts Cardmarket order details. Uses data-language from TR for Language. Manually set version on button. Debugging data-language.
+// @version      2.0.2
+// @description  Extracts Cardmarket order details. Uses data-language from TR for Language. Manually set version on button. Debugging data-language. Separator is ;
 // @author       Your Name (Modified by AI)
 // @match        https://www.cardmarket.com/*/*/Orders/*
 // @grant        GM_addStyle
@@ -14,8 +14,9 @@
 
     // =====================================================================================
     // == NOTA PARA EL DESARROLLADOR: Actualizar manualmente la versión en el texto del botón ==
-    // == La versión actual del script (ver @version arriba) es: 2.0.1                 ==
+    // == La versión actual del script (ver @version arriba) es: 2.0.2                 ==
     // =====================================================================================
+    const SCRIPT_VERSION = '2.0.2'; // Definir la versión aquí para fácil acceso
 
     GM_addStyle(`
         .export-csv-button {
@@ -43,7 +44,8 @@
         }
         str = String(str);
         str = str.replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ').trim();
-        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        // Modificado: Comprobar si incluye el punto y coma (nuevo separador) o comillas dobles
+        if (str.includes(';') || str.includes('"') || str.includes('\n')) {
             str = `"${str.replace(/"/g, '""')}"`;
         }
         return str;
@@ -69,6 +71,7 @@
     function extractOrderData() {
         console.log("Iniciando extractOrderData...");
         let csvRows = [];
+        const separator = ';'; // Definir el separador aquí
 
         // --- General Order Info ---
         const orderIdText = getText('h1.text-break') || getText('div.page-title-container h1');
@@ -204,7 +207,7 @@
             'ShippingMethod', 'ShippingTracked', 'ShippingTrustService',
             'EvaluationDate', 'EvalOverall', 'EvalItemDesc', 'EvalPackaging', 'EvalComment'
         ];
-        csvRows.push(generalHeaders.map(sanitizeForCSV).join(','));
+        csvRows.push(generalHeaders.map(sanitizeForCSV).join(separator)); // Modificado
         const generalData = [
             orderId, sellerUsername, sellerLocation, sellerDisplayName, sellerStreet, sellerCityZip, sellerCountry,
             timeline['Pagado'] || timeline['Paid'] || '',
@@ -215,8 +218,8 @@
             shippingMethodName, shippingTracked, shippingTrust,
             evalDate, evalOverall, evalItemDesc, evalPackaging, evalComment
         ];
-        csvRows.push(generalData.map(sanitizeForCSV).join(','));
-        csvRows.push('');
+        csvRows.push(generalData.map(sanitizeForCSV).join(separator)); // Modificado
+        csvRows.push(''); // Fila vacía como separador visual en el CSV
 
         const articleTables = document.querySelectorAll('table.product-table');
         if (articleTables.length === 0) {
@@ -232,7 +235,7 @@
             const categoryName = categoryHeaderElement ? categoryHeaderElement.textContent.trim() : 'Artículos';
             const isPokemonCategory = categoryName.toLowerCase().includes('pokémon') || categoryName.toLowerCase().includes('pokemon');
 
-            csvRows.push([sanitizeForCSV(`--- ${categoryName} ---`)].join(','));
+            csvRows.push([sanitizeForCSV(`--- ${categoryName} ---`)].join(separator)); // Modificado (aunque .join no hace nada con un solo elemento, es consistente)
 
             let articleHeaders = [
                 'ArticleID', 'ProductID', 'Quantity', 'Name', 'LocalizedName', 'Expansion',
@@ -247,24 +250,21 @@
             articleHeaders.push('IsSigned', 'IsAltered');
             articleHeaders.push('PricePerUnit', 'Comment');
 
-            csvRows.push(articleHeaders.map(sanitizeForCSV).join(','));
+            csvRows.push(articleHeaders.map(sanitizeForCSV).join(separator)); // Modificado
 
             const articleRows = articleTable.querySelectorAll('tbody tr[data-article-id]');
             console.log(`Tabla #${tableIndex + 1}: Encontradas ${articleRows.length} filas de artículos (TRs).`);
 
             articleRows.forEach((row, rowIndex) => {
                 const articleIdForDebug = row.dataset.articleId || 'ID DESCONOCIDO';
-                // --- DEPURACIÓN PARA data-language ---
-                // console.log(`Fila #${rowIndex + 1} (ArtID: ${articleIdForDebug}) - TR Element:`, row);
                 const languageAttrValue = row.getAttribute('data-language');
                 if (languageAttrValue === null) {
-                    console.warn(`Fila #${rowIndex + 1} (ArtID: ${articleIdForDebug}): data-language es NULL. El TR no tiene este atributo o no es accesible.`);
+                    console.warn(`Fila #${rowIndex + 1} (ArtID: ${articleIdForDebug}): data-language es NULL.`);
                 } else if (languageAttrValue === undefined) {
                      console.warn(`Fila #${rowIndex + 1} (ArtID: ${articleIdForDebug}): data-language es UNDEFINED.`);
                 } else {
-                    console.log(`Fila #${rowIndex + 1} (ArtID: ${articleIdForDebug}): data-language = "${languageAttrValue}" (Tipo: ${typeof languageAttrValue})`);
+                    // console.log(`Fila #${rowIndex + 1} (ArtID: ${articleIdForDebug}): data-language = "${languageAttrValue}" (Tipo: ${typeof languageAttrValue})`);
                 }
-                // --- FIN DEPURACIÓN ---
 
                 const articleData = [];
 
@@ -337,9 +337,9 @@
                 articleData.push(getText('td.price', row).replace(/[€$]/g, '').trim());
                 articleData.push(infoCell ? getText('p.comment', infoCell) : '');
 
-                csvRows.push(articleData.map(sanitizeForCSV).join(','));
+                csvRows.push(articleData.map(sanitizeForCSV).join(separator)); // Modificado
             });
-            csvRows.push('');
+            csvRows.push(''); // Fila vacía después de cada tabla de artículos
         });
 
         const date = new Date();
@@ -356,7 +356,7 @@
     }
 
     function downloadCSV(csvContent, fileName) {
-        const BOM = "\uFEFF";
+        const BOM = "\uFEFF"; // Byte Order Mark para UTF-8
         const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
         if (link.download !== undefined) {
@@ -372,22 +372,21 @@
             console.error("Download attribute not supported. CSV content logged to console.");
             console.log(csvContent);
             GM_setClipboard(BOM + csvContent);
-            alert("El navegador no soporta la descarga directa. El CSV se ha copiado al portapapeles y se ha mostrado en la consola. Asegúrate de pegar en un editor que entienda UTF-8.");
+            alert("El navegador no soporta la descarga directa. El CSV se ha copiado al portapapeles y se ha mostrado en la consola. Asegúrate de pegar en un editor que entienda UTF-8 y pueda interpretar el separador punto y coma (;) correctamente.");
         }
     }
 
     // Crear y añadir el botón
     if (!document.querySelector('.export-csv-button')) {
         const exportButton = document.createElement('button');
-        // == NOTA PARA EL DESARROLLADOR: Actualizar manualmente la versión aquí también ==
-        exportButton.textContent = 'Exportar Pedido a CSV (v2.0.1)';
+        exportButton.textContent = `Exportar Pedido a CSV (v${SCRIPT_VERSION})`; // Usar la constante
         exportButton.className = 'export-csv-button';
         exportButton.addEventListener('click', extractOrderData);
         document.body.appendChild(exportButton);
-        console.log("Botón 'Exportar Pedido a CSV' creado con texto:", exportButton.textContent);
+        console.log(`Botón 'Exportar Pedido a CSV' creado con texto: ${exportButton.textContent}`);
     } else {
         console.log("El botón 'Exportar Pedido a CSV' ya existe.");
     }
-    console.log("Script de exportación de pedidos de Cardmarket (v2.0.1) cargado.");
+    console.log(`Script de exportación de pedidos de Cardmarket (v${SCRIPT_VERSION}) cargado. Separador: ;`);
 
 })();
