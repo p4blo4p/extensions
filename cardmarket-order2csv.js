@@ -1,22 +1,26 @@
 // ==UserScript==
 // @name         Cardmarket Order Exporter to CSV (Direct Rarity Title & data-language from TR)
 // @namespace    http://tampermonkey.net/
-// @version      2.0.3
-// @description  Extracts Cardmarket order details. Uses data-language from TR for Language. Manually set version on button. Debugging data-language. Separator is ;
+// @version      2.0.4 // <-- CAMBIA LA VERSIÓN AQUÍ
+// @description  Extracts Cardmarket order details. Uses data-language from TR for Language. Version from GM_info. Separator is ;. Decimal separator is .
 // @author       Your Name (Modified by AI)
 // @match        https://www.cardmarket.com/*/*/Orders/*
 // @grant        GM_addStyle
 // @grant        GM_setClipboard
+// @grant        GM_info
 // ==/UserScript==
 
 (function() {
     'use strict';
 
+    const SCRIPT_VERSION = GM_info.script.version;
+
     // =====================================================================================
-    // == NOTA PARA EL DESARROLLADOR: Actualizar manualmente la versión en el texto del botón ==
-    // == La versión actual del script (ver @version arriba) es: 2.0.2                 ==
+    // == NOTA PARA EL DESARROLLADOR: Actualizar la versión ÚNICAMENTE en la etiqueta @version arriba. ==
+    // == La versión actual del script (leída de @version) es: ${SCRIPT_VERSION}                 ==
+    // == SEPARADOR CSV: ;                                                               ==
+    // == SEPARADOR DECIMALES: .                                                         ==
     // =====================================================================================
-    const SCRIPT_VERSION = GM_info.script.version; // Definir la versión aquí para fácil acceso
 
     GM_addStyle(`
         .export-csv-button {
@@ -44,7 +48,6 @@
         }
         str = String(str);
         str = str.replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ').trim();
-        // Modificado: Comprobar si incluye el punto y coma (nuevo separador) o comillas dobles
         if (str.includes(';') || str.includes('"') || str.includes('\n')) {
             str = `"${str.replace(/"/g, '""')}"`;
         }
@@ -68,10 +71,18 @@
         return el ? el.getAttribute(attribute) : '';
     }
 
+    // Helper function to format numbers to use '.' as decimal separator
+    function formatNumberString(numStr) {
+        if (typeof numStr === 'string') {
+            return numStr.replace(',', '.');
+        }
+        return String(numStr); // Ensure it's a string if it was already a number
+    }
+
     function extractOrderData() {
         console.log("Iniciando extractOrderData...");
         let csvRows = [];
-        const separator = ';'; // Definir el separador aquí
+        const separator = ';';
 
         // --- General Order Info ---
         const orderIdText = getText('h1.text-break') || getText('div.page-title-container h1');
@@ -109,20 +120,22 @@
 
         if (summaryDiv && summaryDiv.dataset.articleCount) {
             articleCount = summaryDiv.dataset.articleCount || '';
-            itemValue = summaryDiv.dataset.itemValue || '';
-            shippingPrice = summaryDiv.dataset.shippingPrice || '';
-            totalPrice = summaryDiv.dataset.totalPrice || '';
-            trustServiceCost = summaryDiv.dataset.internalInsurance || '0';
+            // Asegurar punto decimal para dataset (aunque suelen usar punto)
+            itemValue = formatNumberString(summaryDiv.dataset.itemValue || '');
+            shippingPrice = formatNumberString(summaryDiv.dataset.shippingPrice || '');
+            totalPrice = formatNumberString(summaryDiv.dataset.totalPrice || '');
+            trustServiceCost = formatNumberString(summaryDiv.dataset.internalInsurance || '0');
         } else {
             articleCount = getText('#collapsibleBuyerShipmentSummary .d-flex span.article-count, #collapsibleBuyerShipmentSummary span.article-count')?.replace(/\s*Artículos|\s*Articles/i, '').trim();
-            itemValue = getText('#collapsibleBuyerShipmentSummary .d-flex span.item-value, #collapsibleBuyerShipmentSummary span.item-value')?.replace(/[€$]/g, '').trim();
-            shippingPrice = getText('#collapsibleBuyerShipmentSummary .d-flex span.shipping-price, #collapsibleBuyerShipmentSummary span.shipping-price')?.replace(/[€$]/g, '').trim();
+            // Quitar moneda y asegurar punto decimal
+            itemValue = formatNumberString(getText('#collapsibleBuyerShipmentSummary .d-flex span.item-value, #collapsibleBuyerShipmentSummary span.item-value')?.replace(/[€$]/g, '').trim());
+            shippingPrice = formatNumberString(getText('#collapsibleBuyerShipmentSummary .d-flex span.shipping-price, #collapsibleBuyerShipmentSummary span.shipping-price')?.replace(/[€$]/g, '').trim());
             const trustServiceElement = Array.from(document.querySelectorAll('#collapsibleBuyerShipmentSummary .d-flex'))
                                           .find(el => el.querySelector('span.flex-grow-1')?.textContent.match(/Servicio TRUST|TRUST Service/i));
             if (trustServiceElement) {
-                trustServiceCost = trustServiceElement.querySelector('span:not(.flex-grow-1)')?.textContent.replace(/[€$]/g, '').trim() || '0';
+                trustServiceCost = formatNumberString(trustServiceElement.querySelector('span:not(.flex-grow-1)')?.textContent.replace(/[€$]/g, '').trim() || '0');
             }
-            totalPrice = getText('#labelBuyerShipmentSummary strong, #collapsibleBuyerShipmentSummary .d-flex.total span.strong.total, #collapsibleBuyerShipmentSummary .d-flex span.total.strong')?.replace(/[()€$\s]/g, '').trim();
+            totalPrice = formatNumberString(getText('#labelBuyerShipmentSummary strong, #collapsibleBuyerShipmentSummary .d-flex.total span.strong.total, #collapsibleBuyerShipmentSummary .d-flex span.total.strong')?.replace(/[()€$\s]/g, '').trim());
         }
 
 
@@ -207,7 +220,7 @@
             'ShippingMethod', 'ShippingTracked', 'ShippingTrustService',
             'EvaluationDate', 'EvalOverall', 'EvalItemDesc', 'EvalPackaging', 'EvalComment'
         ];
-        csvRows.push(generalHeaders.map(sanitizeForCSV).join(separator)); // Modificado
+        csvRows.push(generalHeaders.map(sanitizeForCSV).join(separator));
         const generalData = [
             orderId, sellerUsername, sellerLocation, sellerDisplayName, sellerStreet, sellerCityZip, sellerCountry,
             timeline['Pagado'] || timeline['Paid'] || '',
@@ -218,8 +231,8 @@
             shippingMethodName, shippingTracked, shippingTrust,
             evalDate, evalOverall, evalItemDesc, evalPackaging, evalComment
         ];
-        csvRows.push(generalData.map(sanitizeForCSV).join(separator)); // Modificado
-        csvRows.push(''); // Fila vacía como separador visual en el CSV
+        csvRows.push(generalData.map(sanitizeForCSV).join(separator));
+        csvRows.push('');
 
         const articleTables = document.querySelectorAll('table.product-table');
         if (articleTables.length === 0) {
@@ -235,7 +248,7 @@
             const categoryName = categoryHeaderElement ? categoryHeaderElement.textContent.trim() : 'Artículos';
             const isPokemonCategory = categoryName.toLowerCase().includes('pokémon') || categoryName.toLowerCase().includes('pokemon');
 
-            csvRows.push([sanitizeForCSV(`--- ${categoryName} ---`)].join(separator)); // Modificado (aunque .join no hace nada con un solo elemento, es consistente)
+            csvRows.push([sanitizeForCSV(`--- ${categoryName} ---`)].join(separator));
 
             let articleHeaders = [
                 'ArticleID', 'ProductID', 'Quantity', 'Name', 'LocalizedName', 'Expansion',
@@ -250,7 +263,7 @@
             articleHeaders.push('IsSigned', 'IsAltered');
             articleHeaders.push('PricePerUnit', 'Comment');
 
-            csvRows.push(articleHeaders.map(sanitizeForCSV).join(separator)); // Modificado
+            csvRows.push(articleHeaders.map(sanitizeForCSV).join(separator));
 
             const articleRows = articleTable.querySelectorAll('tbody tr[data-article-id]');
             console.log(`Tabla #${tableIndex + 1}: Encontradas ${articleRows.length} filas de artículos (TRs).`);
@@ -262,8 +275,6 @@
                     console.warn(`Fila #${rowIndex + 1} (ArtID: ${articleIdForDebug}): data-language es NULL.`);
                 } else if (languageAttrValue === undefined) {
                      console.warn(`Fila #${rowIndex + 1} (ArtID: ${articleIdForDebug}): data-language es UNDEFINED.`);
-                } else {
-                    // console.log(`Fila #${rowIndex + 1} (ArtID: ${articleIdForDebug}): data-language = "${languageAttrValue}" (Tipo: ${typeof languageAttrValue})`);
                 }
 
                 const articleData = [];
@@ -334,12 +345,13 @@
                 }
                 articleData.push(isSigned, isAltered);
 
-                articleData.push(getText('td.price', row).replace(/[€$]/g, '').trim());
+                // Quitar moneda y asegurar punto decimal para PricePerUnit
+                articleData.push(formatNumberString(getText('td.price', row).replace(/[€$]/g, '').trim()));
                 articleData.push(infoCell ? getText('p.comment', infoCell) : '');
 
-                csvRows.push(articleData.map(sanitizeForCSV).join(separator)); // Modificado
+                csvRows.push(articleData.map(sanitizeForCSV).join(separator));
             });
-            csvRows.push(''); // Fila vacía después de cada tabla de artículos
+            csvRows.push('');
         });
 
         const date = new Date();
@@ -356,7 +368,7 @@
     }
 
     function downloadCSV(csvContent, fileName) {
-        const BOM = "\uFEFF"; // Byte Order Mark para UTF-8
+        const BOM = "\uFEFF";
         const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
         if (link.download !== undefined) {
@@ -372,14 +384,14 @@
             console.error("Download attribute not supported. CSV content logged to console.");
             console.log(csvContent);
             GM_setClipboard(BOM + csvContent);
-            alert("El navegador no soporta la descarga directa. El CSV se ha copiado al portapapeles y se ha mostrado en la consola. Asegúrate de pegar en un editor que entienda UTF-8 y pueda interpretar el separador punto y coma (;) correctamente.");
+            alert("El navegador no soporta la descarga directa. El CSV se ha copiado al portapapeles y se ha mostrado en la consola. Asegúrate de pegar en un editor que entienda UTF-8 y pueda interpretar el separador punto y coma (;) y el punto decimal (.) correctamente.");
         }
     }
 
     // Crear y añadir el botón
     if (!document.querySelector('.export-csv-button')) {
         const exportButton = document.createElement('button');
-        exportButton.textContent = `Exportar Pedido a CSV (v${SCRIPT_VERSION})`; // Usar la constante
+        exportButton.textContent = `Exportar Pedido a CSV (v${SCRIPT_VERSION})`;
         exportButton.className = 'export-csv-button';
         exportButton.addEventListener('click', extractOrderData);
         document.body.appendChild(exportButton);
@@ -387,6 +399,6 @@
     } else {
         console.log("El botón 'Exportar Pedido a CSV' ya existe.");
     }
-    console.log(`Script de exportación de pedidos de Cardmarket (v${SCRIPT_VERSION}) cargado. Separador: ;`);
+    console.log(`Script de exportación de pedidos de Cardmarket (v${SCRIPT_VERSION}) cargado. Separador CSV: ';' Decimales: '.'`);
 
 })();
