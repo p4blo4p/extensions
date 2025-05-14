@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cardmarket Order Exporter to CSV (Direct Rarity Title & data-language from TR)
 // @namespace    http://tampermonkey.net/
-// @version      2.0.2
+// @version      2.0.3
 // @description  Extracts Cardmarket order details. Uses data-language from TR for Language. Manually set version on button. Debugging data-language. Separator is ;
 // @author       Your Name (Modified by AI)
 // @match        https://www.cardmarket.com/*/*/Orders/*
@@ -16,7 +16,7 @@
     // == NOTA PARA EL DESARROLLADOR: Actualizar manualmente la versión en el texto del botón ==
     // == La versión actual del script (ver @version arriba) es: 2.0.2                 ==
     // =====================================================================================
-    const SCRIPT_VERSION = '2.0.2'; // Definir la versión aquí para fácil acceso
+    const SCRIPT_VERSION = GM_info.script.version; // Definir la versión aquí para fácil acceso
 
     GM_addStyle(`
         .export-csv-button {
