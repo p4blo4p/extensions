@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Exportar Compras Wallapop a CSV (Con Observador de DOM)
+// @name         Exportar Compras Wallapop a CSV (Anti-Duplicados)
 // @namespace    http://tampermonkey.net/
-// @version      1.4
-// @description  Extrae la lista de compras de Wallapop y la exporta a CSV de manera más robusta, esperando a que el DOM esté cargado.
+// @version      1.5
+// @description  Extrae la lista de compras de Wallapop y la exporta a CSV de manera más robusta, evitando duplicados.
 // @author       Tu Nombre
 // @match        *://*.wallapop.com/*
 // @grant        none
@@ -35,11 +35,11 @@
 
     function extractDateFromText(text) {
         const dateRegexes = [
-            /el\s+(\d{1,2}\s+[a-záéíóúñ]+\.)/i, // "el 23 mar." o "el 23 de marzo."
-            /el\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/, // "el 23/03/2023"
+            /el\s+(\d{1,2}\s+[a-záéíóúñ]+\.)/i,
+            /el\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/,
             /(?:Completada|Entregada|Finalizada|Enviada|Fecha de envío|Fecha):\s*(\d{1,2}\s+[a-záéíóúñ]+\.?|\d{1,2}\/\d{1,2}\/\d{2,4})/i,
-            /(\d{1,2}\s+[a-záéíóúñ]+\.?\s*\d{4})/i, // "23 mar. 2023" (si el año aparece)
-            /(\d{1,2}\/\d{1,2}\/\d{4})/ // "01/01/2023"
+            /(\d{1,2}\s+[a-záéíóúñ]+\.?\s*\d{4})/i,
+            /(\d{1,2}\/\d{1,2}\/\d{4})/
         ];
 
         for (const regex of dateRegexes) {
@@ -54,6 +54,7 @@
     function parseWallapopEntries() {
         const entries = document.querySelectorAll('tsl-historic-element, [data-testid="transaction-item"], .HistoricElement');
         const data = [];
+        const seenEntries = new Set(); // Para almacenar identificadores únicos
 
         entries.forEach(entry => {
             let title = '';
@@ -80,15 +81,22 @@
             imageUrl = entry.querySelector('img[src], [data-testid="item-image"] img[src]')
                              ?.getAttribute('src') || '';
 
+            // Generar un ID único para la entrada
+            // Usamos una combinación de título, precio y fecha para mayor robustez
+            const uniqueId = `${title}-${price}-${extractedDate}-${subDesc}`;
+
             if (title || price || subDesc || shippingType || imageUrl) {
-                data.push({
-                    title: title,
-                    price: price,
-                    estado_fecha_raw: subDesc,
-                    fecha_extraida: extractedDate,
-                    envio: shippingType,
-                    imagen_url: imageUrl
-                });
+                if (!seenEntries.has(uniqueId)) {
+                    seenEntries.add(uniqueId);
+                    data.push({
+                        title: title,
+                        price: price,
+                        estado_fecha_raw: subDesc,
+                        fecha_extraida: extractedDate,
+                        envio: shippingType,
+                        imagen_url: imageUrl
+                    });
+                }
             }
         });
 
@@ -128,15 +136,19 @@
     exportButton.style.cursor = 'pointer';
     exportButton.style.display = 'none'; // Oculto inicialmente
 
-    // Función para activar el botón una vez que los elementos relevantes están presentes
+    // Flag para saber si el botón ya ha sido activado
+    let buttonActivated = false;
+
     function activateButton() {
+        if (buttonActivated) return true; // Si ya se activó, no hacer nada
+
         // Buscamos si hay al menos una entrada de historial.
-        // Los selectores aquí deben coincidir con los de parseWallapopEntries
         if (document.querySelector('tsl-historic-element, [data-testid="transaction-item"], .HistoricElement')) {
             exportButton.style.display = 'block'; // Mostrar el botón
-            return true; // Indicamos que el botón se activó
+            buttonActivated = true; // Establecer el flag a true
+            return true;
         }
-        return false; // El botón no se activó
+        return false;
     }
 
     exportButton.addEventListener('click', () => {
@@ -151,22 +163,22 @@
 
     document.body.appendChild(exportButton);
 
-    // --- MutationObserver para esperar a que el contenido se cargue ---
     const observer = new MutationObserver((mutationsList, observer) => {
-        // Para cada mutación, intentamos activar el botón
-        if (activateButton()) {
-            // Si el botón se activó, ya encontramos los elementos, podemos dejar de observar
-            observer.disconnect();
+        // Solo intentamos activar el botón si aún no ha sido activado
+        if (!buttonActivated) {
+            if (activateButton()) {
+                // Si el botón se activó, ya encontramos los elementos, podemos dejar de observar
+                observer.disconnect();
+                console.log('MutationObserver desconectado: Botón activado y elementos encontrados.');
+            }
         }
     });
 
     // Observar cambios en el body (o un contenedor más específico si lo conoces)
-    // childList: para detectar adiciones/eliminaciones de nodos hijos
-    // subtree: para observar no solo el elemento objetivo, sino también sus descendientes
     observer.observe(document.body, { childList: true, subtree: true });
 
-    // También intentamos activar el botón una vez por si el contenido ya estaba cargado
-    // (ej. si el script se ejecuta más tarde).
+    // También intentamos activar el botón una vez al inicio por si el contenido ya estaba cargado
+    // (ej. si el script se ejecuta más tarde o la página carga muy rápido).
     activateButton();
 
 })();
