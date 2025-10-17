@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Exportar Compras Wallapop a CSV (Mejorado con Fechas e Imágenes - URL Fix)
+// @name         Exportar Compras Wallapop a CSV (Con Observador de DOM)
 // @namespace    http://tampermonkey.net/
-// @version      1.3
-// @description  Extrae la lista de compras de Wallapop y la exporta a CSV de manera más robusta, incluyendo fecha y URL de imagen.
+// @version      1.4
+// @description  Extrae la lista de compras de Wallapop y la exporta a CSV de manera más robusta, esperando a que el DOM esté cargado.
 // @author       Tu Nombre
 // @match        *://*.wallapop.com/*
 // @grant        none
@@ -33,7 +33,6 @@
         return text;
     }
 
-    // Función para intentar extraer la fecha de una cadena de texto
     function extractDateFromText(text) {
         const dateRegexes = [
             /el\s+(\d{1,2}\s+[a-záéíóúñ]+\.)/i, // "el 23 mar." o "el 23 de marzo."
@@ -49,7 +48,7 @@
                 return match[1].trim();
             }
         }
-        return ''; // Si no se encuentra ninguna fecha
+        return '';
     }
 
     function parseWallapopEntries() {
@@ -127,28 +126,20 @@
     exportButton.style.border = 'none';
     exportButton.style.borderRadius = '4px';
     exportButton.style.cursor = 'pointer';
+    exportButton.style.display = 'none'; // Oculto inicialmente
+
+    // Función para activar el botón una vez que los elementos relevantes están presentes
+    function activateButton() {
+        // Buscamos si hay al menos una entrada de historial.
+        // Los selectores aquí deben coincidir con los de parseWallapopEntries
+        if (document.querySelector('tsl-historic-element, [data-testid="transaction-item"], .HistoricElement')) {
+            exportButton.style.display = 'block'; // Mostrar el botón
+            return true; // Indicamos que el botón se activó
+        }
+        return false; // El botón no se activó
+    }
 
     exportButton.addEventListener('click', () => {
-        // *** CAMBIO AQUÍ ***
-        // Log la URL actual para depuración
-        console.log('Current Wallapop URL:', window.location.href);
-
-        // Intenta hacer la comprobación de URL más general o incluso eliminarla si quieres
-        // que el botón aparezca en cualquier página de Wallapop.
-        // La siguiente línea hace una comprobación más laxa, buscando "transactions" o "purchases"
-        // en cualquier parte de la URL, lo cual debería ser suficiente.
-        const isTransactionPage = window.location.href.includes('/app/user/transactions') ||
-                                  window.location.href.includes('/app/user/purchases') ||
-                                  window.location.href.includes('/app/profile/transactions') || // Otra posible ruta
-                                  window.location.href.includes('/app/profile/purchases') ||    // Otra posible ruta
-                                  window.location.href.includes('/app/user/history'); // Otra posible ruta para el historial general
-
-        if (!isTransactionPage) {
-             alert('Por favor, navega a tu sección de "Compras" o "Historial de Transacciones" en Wallapop para usar este script.');
-             return;
-        }
-        // *** FIN CAMBIO ***
-
         const data = parseWallapopEntries();
         if(data.length === 0) {
             alert('No se encontraron entradas de historial para exportar. Asegúrate de estar en tu sección de compras/ventas y de que los elementos estén cargados.');
@@ -159,4 +150,23 @@
     });
 
     document.body.appendChild(exportButton);
+
+    // --- MutationObserver para esperar a que el contenido se cargue ---
+    const observer = new MutationObserver((mutationsList, observer) => {
+        // Para cada mutación, intentamos activar el botón
+        if (activateButton()) {
+            // Si el botón se activó, ya encontramos los elementos, podemos dejar de observar
+            observer.disconnect();
+        }
+    });
+
+    // Observar cambios en el body (o un contenedor más específico si lo conoces)
+    // childList: para detectar adiciones/eliminaciones de nodos hijos
+    // subtree: para observar no solo el elemento objetivo, sino también sus descendientes
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // También intentamos activar el botón una vez por si el contenido ya estaba cargado
+    // (ej. si el script se ejecuta más tarde).
+    activateButton();
+
 })();
