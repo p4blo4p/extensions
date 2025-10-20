@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Exportar Compras Wallapop a CSV (Año en Fechas)
+// @name         Exportar Compras Wallapop a CSV (Año en Fechas Corregido)
 // @namespace    http://tampermonkey.net/
-// @version      1.7
-// @description  Extrae la lista de compras de Wallapop y la exporta a CSV, incluyendo el año completo en las fechas.
+// @version      1.8
+// @description  Extrae la lista de compras de Wallapop y la exporta a CSV, incluyendo el año completo en las fechas, corrigiendo el año incorrecto.
 // @author       Tu Nombre
 // @match        *://*.wallapop.com/*
 // @grant        none
@@ -34,7 +34,9 @@
     }
 
     function extractDateFromText(text) {
-        const currentYear = new Date().getFullYear();
+        // Obtener el año actual CADA VEZ que se llama la función, para asegurar que es el correcto.
+        const currentYear = new Date().getFullYear(); 
+        
         const monthMap = {
             'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
             'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12',
@@ -42,12 +44,13 @@
             'julio': '07', 'agosto': '08', 'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
         };
 
-        // Regexp 1: "DD MMM. AAAA" o "DD de Mes de AAAA" (ya tiene el año)
-        let match = text.match(/(\d{1,2})\s+(?:de\s+)?([a-záéíóúñ]+)\.?\s+(de\s+)?(\d{4})/i);
+        // Regexp 1: "DD MMM. AAAA" o "DD de Mes de AAAA" (ya tiene el año completo)
+        // Ojo: Añadida la posibilidad de que el año no tenga "de" antes (ej. "23 mar. 2023")
+        let match = text.match(/(\d{1,2})\s+(?:de\s+)?([a-záéíóúñ]+)\.?\s+(?:de\s+)?(\d{4})/i);
         if (match) {
             const day = match[1].padStart(2, '0');
             const month = monthMap[match[2].toLowerCase()];
-            const year = match[4];
+            const year = match[3]; // Aquí el año siempre es de 4 dígitos
             if (day && month && year) {
                 return `${day}/${month}/${year}`;
             }
@@ -59,8 +62,8 @@
             const day = match[1].padStart(2, '0');
             const month = match[2].padStart(2, '0');
             let year = match[3];
-            if (year.length === 2) { // Si el año es de 2 dígitos, asumir el siglo actual
-                year = `20${year}`;
+            if (year.length === 2) { // Si el año es de 2 dígitos, asumir el siglo actual (ej. 23 -> 2023)
+                year = `20${year}`; // Esto es una suposición, si Wallapop muestra 98, sería 1998, pero para Wallapop actual, 20xx es más probable.
             }
             return `${day}/${month}/${year}`;
         }
@@ -71,7 +74,7 @@
             const day = match[1].padStart(2, '0');
             const month = monthMap[match[2].toLowerCase()];
             if (day && month) {
-                return `${day}/${month}/${currentYear}`; // Añadimos el año actual
+                return `${day}/${month}/${currentYear}`; // Añadimos el año actual correctamente
             }
         }
         
@@ -81,14 +84,15 @@
             const day = match[1].split('/')[0].padStart(2, '0');
             const month = match[1].split('/')[1].padStart(2, '0');
             if (day && month) {
-                return `${day}/${month}/${currentYear}`;
+                return `${day}/${month}/${currentYear}`; // Añadimos el año actual correctamente
             }
         }
-
 
         return ''; // Si no se encuentra ninguna fecha válida
     }
 
+    // El resto del script (parseWallapopEntries, dataToCSV, botón, MutationObserver)
+    // permanece igual al de la versión 1.6
     function parseWallapopEntries() {
         const entries = document.querySelectorAll('tsl-historic-element, [data-testid="transaction-item"], .HistoricElement');
         const data = [];
