@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Exportar Compras Wallapop a CSV (Anti-Duplicados)
+// @name         Exportar Compras Wallapop a CSV (Duplicados Finales)
 // @namespace    http://tampermonkey.net/
-// @version      1.5
-// @description  Extrae la lista de compras de Wallapop y la exporta a CSV de manera más robusta, evitando duplicados.
+// @version      1.6
+// @description  Extrae la lista de compras de Wallapop y la exporta a CSV, con un filtrado robusto de duplicados al final.
 // @author       Tu Nombre
 // @match        *://*.wallapop.com/*
 // @grant        none
@@ -54,7 +54,7 @@
     function parseWallapopEntries() {
         const entries = document.querySelectorAll('tsl-historic-element, [data-testid="transaction-item"], .HistoricElement');
         const data = [];
-        const seenEntries = new Set(); // Para almacenar identificadores únicos
+        // Eliminamos el Set seenEntries de aquí, lo haremos al final
 
         entries.forEach(entry => {
             let title = '';
@@ -81,22 +81,16 @@
             imageUrl = entry.querySelector('img[src], [data-testid="item-image"] img[src]')
                              ?.getAttribute('src') || '';
 
-            // Generar un ID único para la entrada
-            // Usamos una combinación de título, precio y fecha para mayor robustez
-            const uniqueId = `${title}-${price}-${extractedDate}-${subDesc}`;
-
             if (title || price || subDesc || shippingType || imageUrl) {
-                if (!seenEntries.has(uniqueId)) {
-                    seenEntries.add(uniqueId);
-                    data.push({
-                        title: title,
-                        price: price,
-                        estado_fecha_raw: subDesc,
-                        fecha_extraida: extractedDate,
-                        envio: shippingType,
-                        imagen_url: imageUrl
-                    });
-                }
+                // Simplemente añadimos la entrada, la desduplicación será posterior
+                data.push({
+                    title: title,
+                    price: price,
+                    estado_fecha_raw: subDesc,
+                    fecha_extraida: extractedDate,
+                    envio: shippingType,
+                    imagen_url: imageUrl
+                });
             }
         });
 
@@ -104,10 +98,24 @@
     }
 
     function dataToCSV(data) {
+        // --- Nuevo paso de desduplicación ---
+        const uniqueData = [];
+        const seenRows = new Set();
+
+        data.forEach(row => {
+            // Convertimos el objeto a una cadena JSON para usarlo como clave en el Set
+            const rowString = JSON.stringify(row);
+            if (!seenRows.has(rowString)) {
+                seenRows.add(rowString);
+                uniqueData.push(row);
+            }
+        });
+        // --- Fin del paso de desduplicación ---
+
         const headers = ['Título', 'Precio', 'Estado y Fecha (Original)', 'Fecha Extraída', 'Tipo de envío', 'URL Imagen'];
         const csvRows = [headers.map(h => escapeCSV(h)).join(',')];
 
-        data.forEach(row => {
+        uniqueData.forEach(row => { // Usamos uniqueData aquí
             const csvRow = [
                 escapeCSV(row.title),
                 escapeCSV(row.price),
@@ -134,18 +142,16 @@
     exportButton.style.border = 'none';
     exportButton.style.borderRadius = '4px';
     exportButton.style.cursor = 'pointer';
-    exportButton.style.display = 'none'; // Oculto inicialmente
+    exportButton.style.display = 'none';
 
-    // Flag para saber si el botón ya ha sido activado
     let buttonActivated = false;
 
     function activateButton() {
-        if (buttonActivated) return true; // Si ya se activó, no hacer nada
+        if (buttonActivated) return true;
 
-        // Buscamos si hay al menos una entrada de historial.
         if (document.querySelector('tsl-historic-element, [data-testid="transaction-item"], .HistoricElement')) {
-            exportButton.style.display = 'block'; // Mostrar el botón
-            buttonActivated = true; // Establecer el flag a true
+            exportButton.style.display = 'block';
+            buttonActivated = true;
             return true;
         }
         return false;
@@ -157,28 +163,23 @@
             alert('No se encontraron entradas de historial para exportar. Asegúrate de estar en tu sección de compras/ventas y de que los elementos estén cargados.');
             return;
         }
-        const csvData = dataToCSV(data);
+        const csvData = dataToCSV(data); // dataToCSV ahora contiene la lógica de desduplicación
         downloadCSV(csvData, 'wallapop_historial_transacciones.csv');
     });
 
     document.body.appendChild(exportButton);
 
     const observer = new MutationObserver((mutationsList, observer) => {
-        // Solo intentamos activar el botón si aún no ha sido activado
         if (!buttonActivated) {
             if (activateButton()) {
-                // Si el botón se activó, ya encontramos los elementos, podemos dejar de observar
                 observer.disconnect();
                 console.log('MutationObserver desconectado: Botón activado y elementos encontrados.');
             }
         }
     });
 
-    // Observar cambios en el body (o un contenedor más específico si lo conoces)
     observer.observe(document.body, { childList: true, subtree: true });
 
-    // También intentamos activar el botón una vez al inicio por si el contenido ya estaba cargado
-    // (ej. si el script se ejecuta más tarde o la página carga muy rápido).
     activateButton();
 
 })();
