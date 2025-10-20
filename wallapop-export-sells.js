@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Exportar Compras Wallapop a CSV (Duplicados Finales)
+// @name         Exportar Compras Wallapop a CSV (Año en Fechas)
 // @namespace    http://tampermonkey.net/
-// @version      1.6
-// @description  Extrae la lista de compras de Wallapop y la exporta a CSV, con un filtrado robusto de duplicados al final.
+// @version      1.7
+// @description  Extrae la lista de compras de Wallapop y la exporta a CSV, incluyendo el año completo en las fechas.
 // @author       Tu Nombre
 // @match        *://*.wallapop.com/*
 // @grant        none
@@ -34,27 +34,64 @@
     }
 
     function extractDateFromText(text) {
-        const dateRegexes = [
-            /el\s+(\d{1,2}\s+[a-záéíóúñ]+\.)/i,
-            /el\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/,
-            /(?:Completada|Entregada|Finalizada|Enviada|Fecha de envío|Fecha):\s*(\d{1,2}\s+[a-záéíóúñ]+\.?|\d{1,2}\/\d{1,2}\/\d{2,4})/i,
-            /(\d{1,2}\s+[a-záéíóúñ]+\.?\s*\d{4})/i,
-            /(\d{1,2}\/\d{1,2}\/\d{4})/
-        ];
+        const currentYear = new Date().getFullYear();
+        const monthMap = {
+            'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
+            'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12',
+            'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04', 'mayo': '05', 'junio': '06',
+            'julio': '07', 'agosto': '08', 'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+        };
 
-        for (const regex of dateRegexes) {
-            const match = text.match(regex);
-            if (match && match[1]) {
-                return match[1].trim();
+        // Regexp 1: "DD MMM. AAAA" o "DD de Mes de AAAA" (ya tiene el año)
+        let match = text.match(/(\d{1,2})\s+(?:de\s+)?([a-záéíóúñ]+)\.?\s+(de\s+)?(\d{4})/i);
+        if (match) {
+            const day = match[1].padStart(2, '0');
+            const month = monthMap[match[2].toLowerCase()];
+            const year = match[4];
+            if (day && month && year) {
+                return `${day}/${month}/${year}`;
             }
         }
-        return '';
+
+        // Regexp 2: "DD/MM/AAAA" (ya tiene el año)
+        match = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+        if (match) {
+            const day = match[1].padStart(2, '0');
+            const month = match[2].padStart(2, '0');
+            let year = match[3];
+            if (year.length === 2) { // Si el año es de 2 dígitos, asumir el siglo actual
+                year = `20${year}`;
+            }
+            return `${day}/${month}/${year}`;
+        }
+
+        // Regexp 3: "DD MMM." o "DD de Mes." (falta el año, asumimos el actual)
+        match = text.match(/(\d{1,2})\s+(?:de\s+)?([a-záéíóúñ]+)\.?/i);
+        if (match) {
+            const day = match[1].padStart(2, '0');
+            const month = monthMap[match[2].toLowerCase()];
+            if (day && month) {
+                return `${day}/${month}/${currentYear}`; // Añadimos el año actual
+            }
+        }
+        
+        // Regexp 4: "Estado: DD/MM" (falta el año, asumimos el actual) - Ej: Enviada: 23/03
+        match = text.match(/(?:Completada|Entregada|Finalizada|Enviada|Fecha de envío|Fecha):\s*(\d{1,2}\/\d{1,2})/i);
+        if (match) {
+            const day = match[1].split('/')[0].padStart(2, '0');
+            const month = match[1].split('/')[1].padStart(2, '0');
+            if (day && month) {
+                return `${day}/${month}/${currentYear}`;
+            }
+        }
+
+
+        return ''; // Si no se encuentra ninguna fecha válida
     }
 
     function parseWallapopEntries() {
         const entries = document.querySelectorAll('tsl-historic-element, [data-testid="transaction-item"], .HistoricElement');
         const data = [];
-        // Eliminamos el Set seenEntries de aquí, lo haremos al final
 
         entries.forEach(entry => {
             let title = '';
@@ -82,7 +119,6 @@
                              ?.getAttribute('src') || '';
 
             if (title || price || subDesc || shippingType || imageUrl) {
-                // Simplemente añadimos la entrada, la desduplicación será posterior
                 data.push({
                     title: title,
                     price: price,
@@ -98,24 +134,21 @@
     }
 
     function dataToCSV(data) {
-        // --- Nuevo paso de desduplicación ---
         const uniqueData = [];
         const seenRows = new Set();
 
         data.forEach(row => {
-            // Convertimos el objeto a una cadena JSON para usarlo como clave en el Set
             const rowString = JSON.stringify(row);
             if (!seenRows.has(rowString)) {
                 seenRows.add(rowString);
                 uniqueData.push(row);
             }
         });
-        // --- Fin del paso de desduplicación ---
 
         const headers = ['Título', 'Precio', 'Estado y Fecha (Original)', 'Fecha Extraída', 'Tipo de envío', 'URL Imagen'];
         const csvRows = [headers.map(h => escapeCSV(h)).join(',')];
 
-        uniqueData.forEach(row => { // Usamos uniqueData aquí
+        uniqueData.forEach(row => {
             const csvRow = [
                 escapeCSV(row.title),
                 escapeCSV(row.price),
@@ -163,7 +196,7 @@
             alert('No se encontraron entradas de historial para exportar. Asegúrate de estar en tu sección de compras/ventas y de que los elementos estén cargados.');
             return;
         }
-        const csvData = dataToCSV(data); // dataToCSV ahora contiene la lógica de desduplicación
+        const csvData = dataToCSV(data);
         downloadCSV(csvData, 'wallapop_historial_transacciones.csv');
     });
 
