@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Exportar Compras Wallapop a CSV (Año en Fechas Corregido)
+// @name         Exportar Compras Wallapop a CSV (Año desde DOM)
 // @namespace    http://tampermonkey.net/
-// @version      1.8
-// @description  Extrae la lista de compras de Wallapop y la exporta a CSV, incluyendo el año completo en las fechas, corrigiendo el año incorrecto.
+// @version      3.0
+// @description  Extrae la lista de compras de Wallapop y la exporta a CSV, obteniendo el año correcto desde los headers del DOM.
 // @author       Tu Nombre
 // @match        *://*.wallapop.com/*
 // @grant        none
@@ -33,10 +33,7 @@
         return text;
     }
 
-    function extractDateFromText(text) {
-        // Obtener el año actual CADA VEZ que se llama la función, para asegurar que es el correcto.
-        const currentYear = new Date().getFullYear(); 
-        
+    function extractDateFromText(text, currentYear) {
         const monthMap = {
             'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
             'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12',
@@ -45,12 +42,11 @@
         };
 
         // Regexp 1: "DD MMM. AAAA" o "DD de Mes de AAAA" (ya tiene el año completo)
-        // Ojo: Añadida la posibilidad de que el año no tenga "de" antes (ej. "23 mar. 2023")
         let match = text.match(/(\d{1,2})\s+(?:de\s+)?([a-záéíóúñ]+)\.?\s+(?:de\s+)?(\d{4})/i);
         if (match) {
             const day = match[1].padStart(2, '0');
             const month = monthMap[match[2].toLowerCase()];
-            const year = match[3]; // Aquí el año siempre es de 4 dígitos
+            const year = match[3];
             if (day && month && year) {
                 return `${day}/${month}/${year}`;
             }
@@ -62,75 +58,100 @@
             const day = match[1].padStart(2, '0');
             const month = match[2].padStart(2, '0');
             let year = match[3];
-            if (year.length === 2) { // Si el año es de 2 dígitos, asumir el siglo actual (ej. 23 -> 2023)
-                year = `20${year}`; // Esto es una suposición, si Wallapop muestra 98, sería 1998, pero para Wallapop actual, 20xx es más probable.
+            if (year.length === 2) {
+                year = `20${year}`;
             }
             return `${day}/${month}/${year}`;
         }
 
-        // Regexp 3: "DD MMM." o "DD de Mes." (falta el año, asumimos el actual)
+        // Regexp 3: "DD MMM." o "DD de Mes." (SIN año - usar el año actual del contexto DOM)
         match = text.match(/(\d{1,2})\s+(?:de\s+)?([a-záéíóúñ]+)\.?/i);
         if (match) {
             const day = match[1].padStart(2, '0');
-            const month = monthMap[match[2].toLowerCase()];
-            if (day && month) {
-                return `${day}/${month}/${currentYear}`; // Añadimos el año actual correctamente
+            const monthAbbr = match[2].toLowerCase();
+            const month = monthMap[monthAbbr];
+            if (day && month && currentYear) {
+                return `${day}/${month}/${currentYear}`;
             }
         }
         
-        // Regexp 4: "Estado: DD/MM" (falta el año, asumimos el actual) - Ej: Enviada: 23/03
-        match = text.match(/(?:Completada|Entregada|Finalizada|Enviada|Fecha de envío|Fecha):\s*(\d{1,2}\/\d{1,2})/i);
+        // Regexp 4: "Estado: DD/MM" (SIN año - usar el año actual del contexto DOM)
+        match = text.match(/(?:Completada|Entregada|Finalizada|Enviada|Fecha de envío|Fecha):\s*(\d{1,2})\/(\d{1,2})/i);
         if (match) {
-            const day = match[1].split('/')[0].padStart(2, '0');
-            const month = match[1].split('/')[1].padStart(2, '0');
-            if (day && month) {
-                return `${day}/${month}/${currentYear}`; // Añadimos el año actual correctamente
+            const day = match[1].padStart(2, '0');
+            const month = match[2].padStart(2, '0');
+            if (day && month && currentYear) {
+                return `${day}/${month}/${currentYear}`;
             }
         }
 
-        return ''; // Si no se encuentra ninguna fecha válida
+        return '';
     }
 
-    // El resto del script (parseWallapopEntries, dataToCSV, botón, MutationObserver)
-    // permanece igual al de la versión 1.6
     function parseWallapopEntries() {
-        const entries = document.querySelectorAll('tsl-historic-element, [data-testid="transaction-item"], .HistoricElement');
+        // Obtener todos los contenedores que incluyen headers y elementos
+        const listContainer = document.querySelector('.HistoricList, [class*="HistoricList"]');
+        if (!listContainer) {
+            console.log('No se encontró el contenedor de historial');
+            return [];
+        }
+
         const data = [];
+        let currentYear = new Date().getFullYear(); // Año por defecto
 
-        entries.forEach(entry => {
-            let title = '';
-            let price = '';
-            let subDesc = '';
-            let extractedDate = '';
-            let shippingType = '';
-            let imageUrl = '';
+        // Recorrer todos los hijos del contenedor
+        const children = listContainer.querySelectorAll('.HistoricList__header, .HistoricList__element');
+        
+        children.forEach(child => {
+            // Si es un header, actualizar el año actual
+            if (child.classList.contains('HistoricList__header')) {
+                const yearMatch = child.textContent.trim().match(/\b(20\d{2})\b/);
+                if (yearMatch) {
+                    currentYear = yearMatch[1];
+                    console.log(`Año actualizado a: ${currentYear}`);
+                }
+            }
+            // Si es un elemento de transacción, extraer datos
+            else if (child.classList.contains('HistoricList__element')) {
+                const entry = child.querySelector('tsl-historic-element, .HistoricElement');
+                if (!entry) return;
 
-            title = entry.querySelector('.HistoricElement__title > div, [data-testid="item-title"]')
-                          ?.innerText.trim() || '';
+                let title = '';
+                let price = '';
+                let subDesc = '';
+                let extractedDate = '';
+                let shippingType = '';
+                let imageUrl = '';
 
-            price = entry.querySelector('.HistoricElement__money-amount, [data-testid="item-price"]')
-                           ?.innerText.trim() || '';
+                title = entry.querySelector('.HistoricElement__title > div, [data-testid="item-title"]')
+                              ?.innerText.trim() || '';
 
-            subDesc = entry.querySelector('.HistoricElement__subDescription, [data-testid="item-status-date"]')
-                                 ?.innerText.trim().replace(/\s+/g, ' ') || '';
+                price = entry.querySelector('.HistoricElement__money-amount, [data-testid="item-price"]')
+                               ?.innerText.trim() || '';
 
-            extractedDate = extractDateFromText(subDesc);
+                subDesc = entry.querySelector('.HistoricElement__subDescription, [data-testid="item-status-date"]')
+                                     ?.innerText.trim().replace(/\s+/g, ' ') || '';
 
-            shippingType = entry.querySelector('.HistoricElement__description span:nth-child(2), [data-testid="item-shipping-type"]')
-                                   ?.innerText.trim() || '';
+                // Pasar el año actual del contexto DOM
+                extractedDate = extractDateFromText(subDesc, currentYear);
 
-            imageUrl = entry.querySelector('img[src], [data-testid="item-image"] img[src]')
-                             ?.getAttribute('src') || '';
+                shippingType = entry.querySelector('.HistoricElement__description span:nth-child(2), [data-testid="item-shipping-type"]')
+                                       ?.innerText.trim() || '';
 
-            if (title || price || subDesc || shippingType || imageUrl) {
-                data.push({
-                    title: title,
-                    price: price,
-                    estado_fecha_raw: subDesc,
-                    fecha_extraida: extractedDate,
-                    envio: shippingType,
-                    imagen_url: imageUrl
-                });
+                imageUrl = entry.querySelector('img[src], [data-testid="item-image"] img[src]')
+                                 ?.getAttribute('src') || '';
+
+                if (title || price || subDesc || shippingType || imageUrl) {
+                    data.push({
+                        title: title,
+                        price: price,
+                        estado_fecha_raw: subDesc,
+                        fecha_extraida: extractedDate,
+                        anio_contexto: currentYear,
+                        envio: shippingType,
+                        imagen_url: imageUrl
+                    });
+                }
             }
         });
 
@@ -149,7 +170,7 @@
             }
         });
 
-        const headers = ['Título', 'Precio', 'Estado y Fecha (Original)', 'Fecha Extraída', 'Tipo de envío', 'URL Imagen'];
+        const headers = ['Título', 'Precio', 'Estado y Fecha (Original)', 'Fecha Extraída', 'Año (Contexto DOM)', 'Tipo de envío', 'URL Imagen'];
         const csvRows = [headers.map(h => escapeCSV(h)).join(',')];
 
         uniqueData.forEach(row => {
@@ -158,6 +179,7 @@
                 escapeCSV(row.price),
                 escapeCSV(row.estado_fecha_raw),
                 escapeCSV(row.fecha_extraida),
+                escapeCSV(row.anio_contexto),
                 escapeCSV(row.envio),
                 escapeCSV(row.imagen_url)
             ].join(',');
@@ -202,6 +224,7 @@
         }
         const csvData = dataToCSV(data);
         downloadCSV(csvData, 'wallapop_historial_transacciones.csv');
+        console.log(`Exportadas ${data.length} transacciones`);
     });
 
     document.body.appendChild(exportButton);
