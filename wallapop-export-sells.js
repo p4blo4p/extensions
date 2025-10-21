@@ -45,44 +45,35 @@
         let match = text.match(/(\d{1,2})\s+(?:de\s+)?([a-záéíóúñ]+)\.?\s+(?:de\s+)?(\d{4})/i);
         if (match) {
             const day = match[1].padStart(2, '0');
-            const month = monthMap[match[2].toLowerCase()];
+            const monthName = match[2].toLowerCase();
+            const month = monthMap[monthName] || monthMap[monthName.substring(0, 3)];
             const year = match[3];
             if (day && month && year) {
                 return `${day}/${month}/${year}`;
             }
         }
 
-        // Regexp 2: "DD/MM/AAAA" (ya tiene el año)
-        match = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+        // Regexp 2: "DD MMM." o "DD de Mes." (SIN año - usar el año actual del contexto DOM)
+        match = text.match(/(\d{1,2})\s+(?:de\s+)?([a-záéíóúñ]+)\.?/i);
+        if (match) {
+            const day = match[1].padStart(2, '0');
+            const monthName = match[2].toLowerCase();
+            const month = monthMap[monthName] || monthMap[monthName.substring(0, 3)];
+            if (day && month && currentYear) {
+                return `${day}/${month}/${currentYear}`;
+            }
+        }
+
+        // Regexp 3: "DD/MM/AAAA" o "DD/MM" (formato numérico español)
+        match = text.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
         if (match) {
             const day = match[1].padStart(2, '0');
             const month = match[2].padStart(2, '0');
-            let year = match[3];
+            let year = match[3] || currentYear.toString();
             if (year.length === 2) {
                 year = `20${year}`;
             }
             return `${day}/${month}/${year}`;
-        }
-
-        // Regexp 3: "DD MMM." o "DD de Mes." (SIN año - usar el año actual del contexto DOM)
-        match = text.match(/(\d{1,2})\s+(?:de\s+)?([a-záéíóúñ]+)\.?/i);
-        if (match) {
-            const day = match[1].padStart(2, '0');
-            const monthAbbr = match[2].toLowerCase();
-            const month = monthMap[monthAbbr];
-            if (day && month && currentYear) {
-                return `${day}/${month}/${currentYear}`;
-            }
-        }
-        
-        // Regexp 4: "Estado: DD/MM" (SIN año - usar el año actual del contexto DOM)
-        match = text.match(/(?:Completada|Entregada|Finalizada|Enviada|Fecha de envío|Fecha):\s*(\d{1,2})\/(\d{1,2})/i);
-        if (match) {
-            const day = match[1].padStart(2, '0');
-            const month = match[2].padStart(2, '0');
-            if (day && month && currentYear) {
-                return `${day}/${month}/${currentYear}`;
-            }
         }
 
         return '';
@@ -147,7 +138,6 @@
                         price: price,
                         estado_fecha_raw: subDesc,
                         fecha_extraida: extractedDate,
-                        anio_contexto: currentYear,
                         envio: shippingType,
                         imagen_url: imageUrl
                     });
@@ -170,7 +160,7 @@
             }
         });
 
-        const headers = ['Título', 'Precio', 'Estado y Fecha (Original)', 'Fecha Extraída', 'Año (Contexto DOM)', 'Tipo de envío', 'URL Imagen'];
+        const headers = ['Título', 'Precio', 'Estado', 'Fecha', 'Tipo de envío', 'URL Imagen'];
         const csvRows = [headers.map(h => escapeCSV(h)).join(',')];
 
         uniqueData.forEach(row => {
@@ -179,7 +169,6 @@
                 escapeCSV(row.price),
                 escapeCSV(row.estado_fecha_raw),
                 escapeCSV(row.fecha_extraida),
-                escapeCSV(row.anio_contexto),
                 escapeCSV(row.envio),
                 escapeCSV(row.imagen_url)
             ].join(',');
