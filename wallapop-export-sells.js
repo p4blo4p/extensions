@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Exportar Compras Wallapop a CSV (Año desde DOM)
 // @namespace    http://tampermonkey.net/
-// @version      3.1
+// @version      3.2
 // @description  Extrae la lista de compras de Wallapop y la exporta a CSV, obteniendo el año correcto desde los headers del DOM.
-// @author       Tu Nombre
+// @author       p9
 // @match        *://*.wallapop.com/*
 // @grant        none
 // ==/UserScript==
