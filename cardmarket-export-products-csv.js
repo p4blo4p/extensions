@@ -4,11 +4,12 @@
 // @match        https://www.cardmarket.com/*/*/Products/*
 // @grant        GM_download
 // @grant        GM_setClipboard
-// @version      1.4
+// @version      1.5
 // @author       Your Name (corregido)
 // @description  Extrae la lista de "Wants" de Cardmarket (imágenes, nombres, enlaces) a un archivo CSV.
 // @icon         https://www.cardmarket.com/favicon.ico
 // ==/UserScript==
+
 
 (function() {
     'use strict';
@@ -38,107 +39,105 @@
             return '';
         }
         let strText = String(text);
-        // Replace " with "" for CSV escaping
-        strText = strText.replace(/"/g, '""');
-        // If the text contains a comma, newline, or double quote, enclose it in double quotes
+        strText = strText.replace(/"/g, '""'); // Escape double quotes
         if (strText.includes(',') || strText.includes('\n') || strText.includes('"')) {
-            strText = `"${strText}"`;
+            strText = `"${strText}"`; // Enclose in double quotes if needed
         }
         return strText;
     }
 
+    // --- FUNCIÓN DE EXTRACCIÓN TOTALMENTE REESCRITA ---
     function extractDataToCSV() {
         const data = [];
         data.push(['Nombre', 'Enlace Completo', 'URL Imagen']); // CSV Header
-
         const baseUrl = 'https://www.cardmarket.com';
 
-        // Try desktop table first
-        let rows = document.querySelectorAll('#WantsListTable tbody tr');
+        // Helper para extraer la imagen del nuevo popover (data-bs-content)
+        function extractImageFromPopover(element) {
+            if (!element) return '';
+            const popoverHtml = element.getAttribute('data-bs-content'); // Atributo cambiado
+            if (!popoverHtml) return '';
+            const imgMatch = popoverHtml.match(/src="([^"]+)"/);
+            // Decodificar &amp;
+            return imgMatch && imgMatch[1] ? imgMatch[1].replace(/&amp;/g, '&') : '';
+        }
 
-        if (rows.length > 0) { // Desktop view
-            console.log(`Processing ${rows.length} rows from desktop view.`);
+        // 1. Intenta con la nueva tabla de ESCRITORIO
+        let rows = document.querySelectorAll('#wants-list-table tbody tr'); // ID de tabla cambiado
+        console.log(`Processing ${rows.length} rows from desktop view.`);
+
+        if (rows.length > 0) { // Vista de Escritorio
             rows.forEach(row => {
-                const nameElement = row.querySelector('td.name a');
-                const previewElement = row.querySelector('td.preview span[data-bs-title]');
+                // Selectores de celda completamente cambiados
+                const linkElement = row.querySelector('td[data-label="Nombre"] a');
+                const popoverElement = row.querySelector('a[data-bs-toggle="popover"]'); // La imagen está aquí
 
-                if (nameElement && previewElement) {
-                    const name = nameElement.textContent.trim();
-                    let link = nameElement.getAttribute('href');
+                if (linkElement && popoverElement) {
+                    const name = linkElement.textContent.trim();
+                    let link = linkElement.getAttribute('href');
                     if (link && !link.startsWith('http')) {
                         link = baseUrl + link;
                     }
-
-                    const tooltipHtml = previewElement.getAttribute('data-bs-title');
-                    const imgMatch = tooltipHtml.match(/src="([^"]+)"/);
-                    
-                    // --- CORRECCIÓN AQUÍ ---
-                    // Decodifica &amp; a & para que las URLs de imagen funcionen
-                    let imageUrl = imgMatch && imgMatch[1] ? imgMatch[1].replace(/&amp;/g, '&') : '';
-
+                    const imageUrl = extractImageFromPopover(popoverElement);
                     data.push([name, link, imageUrl]);
                 } else {
                     console.warn('Skipping a row in desktop view, missing elements:', row);
                 }
             });
         } else {
-            // Fallback to mobile list view (accordion items)
-            rows = document.querySelectorAll('#MobileWantsList div.accordion-item');
+            // 2. Fallback a la nueva vista MÓVIL (ya no es un acordeón)
+            rows = document.querySelectorAll('#wants-list-rows div.row.g-0'); // Selector de móvil cambiado
             console.log(`Processing ${rows.length} rows from mobile view.`);
+
             if (rows.length > 0) {
                 rows.forEach(item => {
-                    const headerLink = item.querySelector('.accordion-header a');
-                    const body = item.querySelector('.accordion-collapse .item-body-wrapper');
+                    // Selectores de móvil completamente cambiados
+                    const linkElement = item.querySelector('.article-name a');
+                    const popoverElement = item.querySelector('a[data-bs-toggle="popover"]');
 
-                    if (headerLink && body) {
-                        const nameElement = headerLink.querySelector('.want-name');
-                        const name = nameElement ? nameElement.textContent.trim() : 'N/A';
-
-                        const linkElement = body.querySelector('dl dt a');
-                        let link = linkElement ? linkElement.getAttribute('href') : '';
+                    if (linkElement && popoverElement) {
+                        const name = linkElement.textContent.trim();
+                        let link = linkElement.getAttribute('href');
                         if (link && !link.startsWith('http')) {
                             link = baseUrl + link;
                         }
-
-                        const imageSpan = body.querySelector('dl dd span[data-bs-title]');
-                        let imageUrl = 'N/A';
-                        if (imageSpan) {
-                             const tooltipHtml = imageSpan.getAttribute('data-bs-title');
-                             const imgMatch = tooltipHtml.match(/src="([^"]+)"/);
-                             
-                             // --- CORRECCIÓN AQUÍ ---
-                             // Decodifica &amp; a & para que las URLs de imagen funcionen
-                             imageUrl = imgMatch && imgMatch[1] ? imgMatch[1].replace(/&amp;/g, '&') : '';
-                        }
+                        const imageUrl = extractImageFromPopover(popoverElement);
                         data.push([name, link, imageUrl]);
                     } else {
-                         console.warn('Skipping an item in mobile view, missing elements:', item);
+                        console.warn('Skipping an item in mobile view, missing elements:', item);
                     }
                 });
             }
         }
 
-
-        if (data.length <= 1) { // Only header
-            alert('No se encontraron datos para extraer.');
+        if (data.length <= 1) { // Solo cabecera
+            alert('No se encontraron datos para extraer. La estructura de la página puede haber cambiado de nuevo.');
             return;
         }
 
         const csvContent = data.map(row => row.map(sanitizeForCSV).join(',')).join('\n');
 
-        // Create filename from the list title
+        // --- Extracción de nombre de archivo MEJORADA ---
         let listName = "cardmarket_wants";
-        const titleElement = document.querySelector('.page-title-container h1');
+        // El selector '.page-title-container h1' ya no existe. Usamos el h1 principal.
+        const titleElement = document.querySelector('h1');
         if (titleElement) {
-            listName = titleElement.textContent.trim().replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+            listName = titleElement.textContent.trim()
+                .replace("Wants List:", "") // Limpia el prefijo
+                .trim()
+                .replace(/[^a-z0-9]+/gi, '_') // Limpia caracteres especiales
+                .toLowerCase();
+        }
+        if (listName === "" || listName.startsWith("_")) {
+             listName = "cardmarket_wants"; // Fallback
         }
         const filename = `${listName}.csv`;
 
-        // Download CSV
+        // Descargar CSV
         GM_download({
             url: 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent),
             name: filename,
-            saveAs: true, // Prompts user for filename and location
+            saveAs: true,
             onload: () => {
                 console.log('CSV descargado.');
                 alert(`CSV "${filename}" descargado.`);
@@ -149,18 +148,16 @@
             }
         });
 
-        // Copy to clipboard for convenience
+        // Copiar al portapapeles
         try {
             GM_setClipboard(csvContent);
             console.log('Contenido CSV copiado al portapapeles.');
-            // Optionally notify user about clipboard copy
-            // alert('Contenido CSV copiado al portapapeles.');
         } catch (e) {
             console.error('Error al copiar al portapapeles:', e);
         }
     }
 
-    // Wait for the page to be fully loaded before adding the button
+    // Espera a que la página esté cargada para añadir el botón
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', addExtractButton);
     } else {
