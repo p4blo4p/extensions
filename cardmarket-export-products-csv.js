@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Cardmarket Wants Extractor to CSV
 // @namespace    Violentmonkey Scripts
-// @match        https://www.cardmarket.com/*/*/Wants/*
+// @match        https://www.cardmarket.com/*/*/Products/*
 // @grant        GM_download
 // @grant        GM_setClipboard
-// @version      1.3
+// @version      1.4
 // @author       Your Name (corregido)
 // @description  Extrae la lista de "Wants" de Cardmarket (imágenes, nombres, enlaces) a un archivo CSV.
 // @icon         https://www.cardmarket.com/favicon.ico
