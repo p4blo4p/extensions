@@ -1,8 +1,8 @@
-
+export const USERSCRIPT_CODE = `
 // ==UserScript==
 // @name         Cardmarket Price History Extractor
 // @namespace    http://tampermonkey.net/
-// @version      1.8
+// @version      1.9
 // @description  Extract data, store history, and export CSV from Cardmarket
 // @author       You
 // @match        https://www.cardmarket.com/*/*/Products/*
@@ -16,10 +16,7 @@
     const STORAGE_KEY = 'cm_price_history_v1';
     
     // Helper to generate a unique key for the current page view
-    // This ensures we track daily captures per specific URL (including filters/pages)
     const getAutoRunKey = () => {
-        // We use pathname + search to distinguish between different filters/pages
-        // e.g., /Magic/Products/Singles?idExpansion=123 vs /Magic/Products/Singles?site=2
         const key = window.location.pathname + window.location.search;
         return 'cm_last_auto_run_' + key;
     };
@@ -34,13 +31,9 @@
         head.appendChild(style);
     };
 
-    // Force availability count to be visible on mobile
-    // We override the bootstrap 'd-none' classes specifically for the availability column
-    addGlobalStyle(`
+    addGlobalStyle(\`
         .col-availability span.d-none { display: inline !important; }
         .col-availability span { display: inline !important; }
-        
-        /* Adjust font size and layout on mobile to fit the extra data */
         @media (max-width: 768px) {
             .col-availability { 
                 font-size: 0.75rem; 
@@ -49,7 +42,7 @@
                 justify-content: flex-end;
             }
         }
-    `);
+    \`);
 
     // --- HELPERS ---
     const parsePrice = (str) => {
@@ -59,6 +52,26 @@
     };
 
     const getText = (el) => el ? el.innerText.trim() : '';
+
+    // --- VISUALS: COLOR CODING ---
+    const applyAvailabilityColors = () => {
+        const elements = document.querySelectorAll('.col-availability');
+        elements.forEach(el => {
+            const text = el.innerText.replace(/[^0-9]/g, '');
+            const count = parseInt(text, 10);
+            
+            if (!isNaN(count)) {
+                el.style.fontWeight = 'bold';
+                if (count < 300) {
+                    el.style.color = '#dc2626'; // Red 600
+                } else if (count < 1000) {
+                    el.style.color = '#f97316'; // Orange 500
+                } else {
+                    el.style.color = '#16a34a'; // Green 600
+                }
+            }
+        });
+    };
 
     // --- EXTRACTION LOGIC ---
     const extractData = () => {
@@ -88,8 +101,6 @@
                 const rarity = rarityEl ? rarityEl.getAttribute('aria-label') : 'Unknown';
                 
                 // Availability
-                // On mobile/desktop Cardmarket uses different spans, sometimes hidden.
-                // We grab text from the whole container or visible spans.
                 const availEl = row.querySelector('.col-availability');
                 const availability = parseInt(availEl ? availEl.innerText.replace(/[^0-9]/g, '') : '0') || 0;
                 
@@ -98,17 +109,12 @@
                 const price = parsePrice(getText(priceEl));
 
                 // Image
-                // Images are often inside a tooltip in data-bs-title or data-original-title.
-                // The content is HTML escaped: <img src=&quot;...&quot;>
                 const imgIcon = row.querySelector('.thumbnail-icon');
                 let image = '';
                 if (imgIcon) {
                     const tooltipContent = imgIcon.getAttribute('data-bs-title') || imgIcon.getAttribute('data-original-title') || '';
-                    // Match src=&quot;URL&quot; or src="URL"
-                    const match = tooltipContent.match(/src=[\"|&quot;]*(.*?)[\"|&quot;]*/);
-                    // Simple regex check to grab the url between potential quotes/entities
-                    const urlMatch = tooltipContent.match(/src=['"]?([^'"s>]+)['"]?/); // Standard HTML
-                    const entityMatch = tooltipContent.match(/src=&quot;(.*?)&quot;/); // Escaped HTML
+                    const urlMatch = tooltipContent.match(/src=['"]?([^'"\\s>]+)['"]?/); 
+                    const entityMatch = tooltipContent.match(/src=&quot;(.*?)&quot;/);
                     
                     if (entityMatch && entityMatch[1]) {
                         image = entityMatch[1];
@@ -144,14 +150,13 @@
         localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
         
         if (!isAuto) {
-            alert(`Captured ${newData.length} items. Total history: ${store.history.length}.`);
-            // Update the auto-run key manually so we don't auto-capture again today for this URL
+            alert(\`Captured \${newData.length} items. Total history: \${store.history.length}.\`);
             const today = new Date().toDateString();
             localStorage.setItem(getAutoRunKey(), today);
         } else {
-            console.log(`[CM Tracker] Auto-captured ${newData.length} items.`);
+            console.log(\`[CM Tracker] Auto-captured \${newData.length} items.\`);
             const toast = document.createElement('div');
-            toast.innerText = `✅ Auto-captured ${newData.length} prices`;
+            toast.innerText = \`✅ Auto-captured \${newData.length} prices\`;
             toast.style.cssText = 'position: fixed; top: 10px; right: 10px; background: #4ade80; color: #064e3b; padding: 5px 10px; border-radius: 4px; z-index: 10000; font-size: 12px; opacity: 0.9; pointer-events: none;';
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);
@@ -164,7 +169,6 @@
         const key = getAutoRunKey();
         const lastRun = localStorage.getItem(key);
 
-        // If we haven't run for THIS specific URL today, do it.
         if (lastRun !== today) {
             const data = extractData();
             if (data.length > 0) {
@@ -183,24 +187,22 @@
         }
         const store = JSON.parse(existingStoreStr);
         
-        // CSV Headers
         const headers = ['Timestamp', 'ID', 'Name', 'Expansion', 'Number', 'Rarity', 'Availability', 'Price', 'Link', 'Image'];
         
-        // Map data to CSV rows
         const rows = store.history.map(item => [
             item.timestamp,
             item.id,
-            `"${(item.name || '').replace(/"/g, '""')}"`,
-            `"${(item.expansion || '').replace(/"/g, '""')}"`,
+            \`"\${(item.name || '').replace(/"/g, '""')}"\`,
+            \`"\${(item.expansion || '').replace(/"/g, '""')}"\`,
             item.number,
             item.rarity,
             item.availability,
             item.price,
-            `"${(item.link || '')}"`,
-            `"${(item.image || '')}"`
+            \`"\${(item.link || '')}"\`,
+            \`"\${(item.image || '')}"\`
         ].join(','));
 
-        const csvContent = [headers.join(','), ...rows].join('\n');
+        const csvContent = [headers.join(','), ...rows].join('\\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -214,7 +216,6 @@
     const clearHistory = () => {
         if(confirm('Clear all price history?')) {
             localStorage.removeItem(STORAGE_KEY);
-            // Also clear all auto-run keys to allow immediate re-capture
             Object.keys(localStorage).forEach(key => {
                 if(key.startsWith('cm_last_auto_run_')) {
                     localStorage.removeItem(key);
@@ -227,42 +228,118 @@
     // --- UI CREATION ---
     const createUI = () => {
         const container = document.createElement('div');
-        container.style.cssText = 'position: fixed; bottom: 20px; right: 20px; z-index: 9999; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; gap: 5px; border: 1px solid #ccc; font-family: sans-serif; font-size: 12px;';
+        container.id = 'cm-tracker-ui';
+        // Initial styles: Fixed position, nice shadow, border radius
+        container.style.cssText = 'position: fixed; bottom: 20px; right: 20px; z-index: 10000; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 1px solid #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13px; overflow: hidden; width: 200px; transition: height 0.3s ease;';
+        
+        let isMinimized = false;
+
+        // Header (Draggable Area)
+        const header = document.createElement('div');
+        header.style.cssText = 'padding: 10px 12px; background: #f8fafc; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; cursor: move; user-select: none;';
+        header.title = 'Drag to move';
         
         const title = document.createElement('div');
-        title.innerText = 'CM Tracker v1.8';
-        title.style.fontWeight = 'bold';
-        title.style.textAlign = 'center';
-        title.style.marginBottom = '5px';
-        container.appendChild(title);
+        title.innerHTML = '📊 <b>CM Tracker</b>';
+        title.style.pointerEvents = 'none';
+        
+        const controls = document.createElement('div');
+        controls.style.display = 'flex';
+        controls.style.gap = '8px';
 
-        const btnCapture = document.createElement('button');
-        btnCapture.innerText = '📥 Capture Now';
-        btnCapture.style.cssText = 'padding: 5px; cursor: pointer; background: #3b82f6; color: white; border: none; border-radius: 4px;';
-        btnCapture.onclick = () => {
+        const minBtn = document.createElement('div');
+        minBtn.innerText = '_';
+        minBtn.style.cssText = 'cursor: pointer; font-weight: bold; padding: 0 4px; color: #64748b; font-size: 14px; line-height: 1;';
+        minBtn.title = 'Minimize';
+        
+        controls.appendChild(minBtn);
+        header.appendChild(title);
+        header.appendChild(controls);
+        container.appendChild(header);
+
+        // Content (Buttons)
+        const content = document.createElement('div');
+        content.style.cssText = 'padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #fff;';
+
+        const createBtn = (label, color, onClick) => {
+            const btn = document.createElement('button');
+            btn.innerText = label;
+            btn.style.cssText = \`padding: 8px 12px; border: none; border-radius: 4px; background: \${color}; color: white; font-weight: 600; cursor: pointer; transition: opacity 0.2s;\`;
+            btn.onmouseover = () => btn.style.opacity = '0.9';
+            btn.onmouseout = () => btn.style.opacity = '1';
+            btn.onclick = onClick;
+            return btn;
+        };
+
+        content.appendChild(createBtn('📥 Capture', '#3b82f6', () => {
             const data = extractData();
             saveData(data);
-        };
-        container.appendChild(btnCapture);
+            applyAvailabilityColors(); // Re-apply colors just in case
+        }));
+        content.appendChild(createBtn('💾 Export CSV', '#10b981', downloadCSV));
+        content.appendChild(createBtn('🗑️ Reset', '#ef4444', clearHistory));
 
-        const btnDownload = document.createElement('button');
-        btnDownload.innerText = '💾 CSV Export';
-        btnDownload.style.cssText = 'padding: 5px; cursor: pointer; background: #10b981; color: white; border: none; border-radius: 4px;';
-        btnDownload.onclick = downloadCSV;
-        container.appendChild(btnDownload);
-
-        const btnClear = document.createElement('button');
-        btnClear.innerText = '🗑️ Reset';
-        btnClear.style.cssText = 'padding: 5px; cursor: pointer; background: #ef4444; color: white; border: none; border-radius: 4px;';
-        btnClear.onclick = clearHistory;
-        container.appendChild(btnClear);
-
+        container.appendChild(content);
         document.body.appendChild(container);
+
+        // Minimize Logic
+        minBtn.onclick = (e) => {
+            e.stopPropagation(); // Prevent drag start when clicking button
+            isMinimized = !isMinimized;
+            if (isMinimized) {
+                content.style.display = 'none';
+                header.style.borderBottom = 'none';
+                minBtn.innerText = '□';
+                minBtn.title = 'Maximize';
+                container.style.width = 'auto';
+            } else {
+                content.style.display = 'flex';
+                header.style.borderBottom = '1px solid #e5e7eb';
+                minBtn.innerText = '_';
+                minBtn.title = 'Minimize';
+                container.style.width = '200px';
+            }
+        };
+
+        // Drag Logic
+        let isDragging = false;
+        let offset = { x: 0, y: 0 };
+
+        header.onmousedown = (e) => {
+            if (e.target === minBtn) return; // Don't drag if clicking min button
+            isDragging = true;
+            
+            const rect = container.getBoundingClientRect();
+            offset.x = e.clientX - rect.left;
+            offset.y = e.clientY - rect.top;
+
+            // Switch to absolute positioning relative to viewport for smooth dragging
+            container.style.bottom = 'auto';
+            container.style.right = 'auto';
+            container.style.left = rect.left + 'px';
+            container.style.top = rect.top + 'px';
+            
+            header.style.cursor = 'grabbing';
+        };
+
+        document.onmousemove = (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            container.style.left = (e.clientX - offset.x) + 'px';
+            container.style.top = (e.clientY - offset.y) + 'px';
+        };
+
+        document.onmouseup = () => {
+            isDragging = false;
+            header.style.cursor = 'move';
+        };
     };
 
     // Initialize
     setTimeout(() => {
         createUI();
+        applyAvailabilityColors();
         checkAutoCapture();
     }, 1500);
 })();
+`;
