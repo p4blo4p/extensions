@@ -2,8 +2,8 @@
 // ==UserScript==
 // @name         Cardmarket Price History Extractor
 // @namespace    http://tampermonkey.net/
-// @version      1.9.2
-// @description  Extract data, store history, and export CSV from Cardmarket
+// @version      2.0
+// @description  Extract data, store history, export CSV, and enhance Cardmarket UI with Sortable Stock
 // @author       You
 // @match        https://www.cardmarket.com/*/*/Products/*
 // @grant        none
@@ -21,7 +21,7 @@
         return 'cm_last_auto_run_' + key;
     };
 
-    // --- CSS INJECTION FOR MOBILE VISIBILITY ---
+    // --- CSS INJECTION ---
     const addGlobalStyle = (css) => {
         const head = document.getElementsByTagName('head')[0];
         if (!head) { return; }
@@ -32,16 +32,25 @@
     };
 
     addGlobalStyle(`
-        .col-availability span.d-none { display: inline !important; }
-        .col-availability span { display: inline !important; }
-        @media (max-width: 768px) {
-            .col-availability { 
-                font-size: 0.75rem; 
-                display: flex !important;
-                align-items: center;
-                justify-content: flex-end;
-            }
+        /* Enhanced Stock Column Styles */
+        .cm-stock-cell { 
+            font-weight: 700; 
+            text-align: center; 
+            display: block;
+            width: 100%;
         }
+        .cm-stock-low { color: #dc2626; } /* Red */
+        .cm-stock-med { color: #ea580c; } /* Orange */
+        .cm-stock-high { color: #16a34a; } /* Green */
+        
+        .cm-sort-header { 
+            cursor: pointer; 
+            color: #2563eb; 
+            text-decoration: underline; 
+            font-size: 0.85rem;
+            user-select: none;
+        }
+        .cm-sort-header:hover { color: #1d4ed8; }
     `);
 
     // --- HELPERS ---
@@ -52,6 +61,78 @@
     };
 
     const getText = (el) => el ? el.innerText.trim() : '';
+
+    // --- TABLE ENHANCEMENT (SORTING & COLORS) ---
+    const enhanceTable = () => {
+        // 1. Fix Headers
+        // Try to find the availability header. In product lists, it is often the last small column or has class col-availability
+        const headers = document.querySelectorAll('.table-body > .row:first-child .col-availability, .table-body > .d-none .col-availability');
+        headers.forEach(header => {
+             // Replace icon with clickable text
+             header.innerHTML = '<span class="cm-sort-header" title="Click to Sort">Stock ↕</span>';
+             header.onclick = sortRows;
+             // Ensure it is visible if it was hidden
+             header.classList.remove('d-none');
+             header.style.display = 'flex'; 
+             header.style.justifyContent = 'center';
+        });
+
+        // 2. Fix Rows
+        const rows = document.querySelectorAll('.table-body div[id^="productRow"]');
+        rows.forEach(row => {
+            const cell = row.querySelector('.col-availability');
+            if (!cell) return;
+            
+            // Get number (it might be hidden in a span or just text)
+            const text = cell.textContent || '0';
+            const count = parseInt(text.replace(/[^0-9]/g, '')) || 0;
+            
+            let colorClass = 'cm-stock-high';
+            if (count < 10) colorClass = 'cm-stock-low';
+            else if (count < 50) colorClass = 'cm-stock-med';
+
+            // Replace content with clean number
+            cell.innerHTML = `<span class="cm-stock-cell ${colorClass}">${count}</span>`;
+            
+            // Store raw value for sorting
+            cell.setAttribute('data-stock', count);
+            
+            // Layout fixes
+            cell.classList.remove('d-none');
+            cell.style.display = 'flex';
+            cell.style.alignItems = 'center';
+            cell.style.justifyContent = 'center';
+        });
+    };
+
+    const sortRows = () => {
+        const container = document.querySelector('.table-body');
+        if(!container) return;
+        
+        const rows = Array.from(document.querySelectorAll('div[id^="productRow"]'));
+        
+        // Toggle sort direction
+        const currentSort = container.getAttribute('data-sort-dir') || 'desc';
+        const newSort = currentSort === 'desc' ? 'asc' : 'desc';
+        container.setAttribute('data-sort-dir', newSort);
+        
+        // Sort logic
+        rows.sort((a, b) => {
+            const valA = parseInt(a.querySelector('.col-availability')?.getAttribute('data-stock') || '0');
+            const valB = parseInt(b.querySelector('.col-availability')?.getAttribute('data-stock') || '0');
+            return newSort === 'asc' ? valA - valB : valB - valA;
+        });
+        
+        // Re-append to container to reorder visual position
+        rows.forEach(row => container.appendChild(row));
+        
+        // Feedback
+        const toast = document.createElement('div');
+        toast.innerText = `Sorted by Stock (${newSort})`;
+        toast.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.8); color: white; padding: 10px 20px; border-radius: 8px; z-index: 10000; pointer-events: none; transition: opacity 0.5s;';
+        document.body.appendChild(toast);
+        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 500); }, 800);
+    };
 
     // --- EXTRACTION LOGIC ---
     const extractData = () => {
@@ -82,7 +163,8 @@
                 
                 // Availability
                 const availEl = row.querySelector('.col-availability');
-                const availability = parseInt(availEl ? availEl.innerText.replace(/[^0-9]/g, '') : '0') || 0;
+                // We read from innerText which now contains our clean number
+                const availability = parseInt(getText(availEl).replace(/[^0-9]/g, '')) || 0;
                 
                 // Price
                 const priceEl = row.querySelector('.col-price');
@@ -135,11 +217,6 @@
             localStorage.setItem(getAutoRunKey(), today);
         } else {
             console.log(`[CM Tracker] Auto-captured ${newData.length} items.`);
-            const toast = document.createElement('div');
-            toast.innerText = `✅ Auto-captured ${newData.length} prices`;
-            toast.style.cssText = 'position: fixed; top: 10px; right: 10px; background: #4ade80; color: #064e3b; padding: 5px 10px; border-radius: 4px; z-index: 10000; font-size: 12px; opacity: 0.9; pointer-events: none;';
-            document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
         }
     };
 
@@ -209,15 +286,13 @@
     const createUI = () => {
         const container = document.createElement('div');
         container.id = 'cm-tracker-ui';
-        // Initial styles: Fixed position, nice shadow, border radius
-        container.style.cssText = 'position: fixed; bottom: 20px; right: 20px; z-index: 10000; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 1px solid #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13px; overflow: hidden; width: 200px; transition: height 0.3s ease;';
+        container.style.cssText = 'position: fixed; bottom: 20px; right: 20px; z-index: 10000; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 1px solid #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 13px; overflow: hidden; width: 200px;';
         
         let isMinimized = false;
 
-        // Header (Draggable Area)
+        // Header
         const header = document.createElement('div');
         header.style.cssText = 'padding: 10px 12px; background: #f8fafc; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; justify-content: space-between; cursor: move; user-select: none;';
-        header.title = 'Drag to move';
         
         const title = document.createElement('div');
         title.innerHTML = '📊 <b>CM Tracker</b>';
@@ -229,29 +304,27 @@
 
         const minBtn = document.createElement('div');
         minBtn.innerText = '_';
-        minBtn.style.cssText = 'cursor: pointer; font-weight: bold; padding: 0 4px; color: #64748b; font-size: 14px; line-height: 1;';
-        minBtn.title = 'Minimize';
+        minBtn.style.cssText = 'cursor: pointer; font-weight: bold; padding: 0 4px; color: #64748b;';
         
         controls.appendChild(minBtn);
         header.appendChild(title);
         header.appendChild(controls);
         container.appendChild(header);
 
-        // Content (Buttons)
+        // Content
         const content = document.createElement('div');
         content.style.cssText = 'padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #fff;';
 
         const createBtn = (label, color, onClick) => {
             const btn = document.createElement('button');
             btn.innerText = label;
-            btn.style.cssText = `padding: 8px 12px; border: none; border-radius: 4px; background: ${color}; color: white; font-weight: 600; cursor: pointer; transition: opacity 0.2s;`;
-            btn.onmouseover = () => btn.style.opacity = '0.9';
-            btn.onmouseout = () => btn.style.opacity = '1';
+            btn.style.cssText = `padding: 8px 12px; border: none; border-radius: 4px; background: ${color}; color: white; font-weight: 600; cursor: pointer;`;
             btn.onclick = onClick;
             return btn;
         };
 
-        content.appendChild(createBtn('📥 Capture', '#3b82f6', () => {
+        content.appendChild(createBtn('Refine Table & Sort', '#8b5cf6', enhanceTable));
+        content.appendChild(createBtn('📥 Capture Data', '#3b82f6', () => {
             const data = extractData();
             saveData(data);
         }));
@@ -263,60 +336,46 @@
 
         // Minimize Logic
         minBtn.onclick = (e) => {
-            e.stopPropagation(); // Prevent drag start when clicking button
+            e.stopPropagation();
             isMinimized = !isMinimized;
             if (isMinimized) {
                 content.style.display = 'none';
                 header.style.borderBottom = 'none';
                 minBtn.innerText = '□';
-                minBtn.title = 'Maximize';
-                container.style.width = 'auto';
             } else {
                 content.style.display = 'flex';
                 header.style.borderBottom = '1px solid #e5e7eb';
                 minBtn.innerText = '_';
-                minBtn.title = 'Minimize';
-                container.style.width = '200px';
             }
         };
-
-        // Drag Logic
+        
+        // Draggable Logic
         let isDragging = false;
         let offset = { x: 0, y: 0 };
-
         header.onmousedown = (e) => {
-            if (e.target === minBtn) return; // Don't drag if clicking min button
+            if (e.target === minBtn) return;
             isDragging = true;
-            
             const rect = container.getBoundingClientRect();
             offset.x = e.clientX - rect.left;
             offset.y = e.clientY - rect.top;
-
-            // Switch to absolute positioning relative to viewport for smooth dragging
             container.style.bottom = 'auto';
             container.style.right = 'auto';
             container.style.left = rect.left + 'px';
             container.style.top = rect.top + 'px';
-            
-            header.style.cursor = 'grabbing';
         };
-
         document.onmousemove = (e) => {
             if (!isDragging) return;
             e.preventDefault();
             container.style.left = (e.clientX - offset.x) + 'px';
             container.style.top = (e.clientY - offset.y) + 'px';
         };
-
-        document.onmouseup = () => {
-            isDragging = false;
-            header.style.cursor = 'move';
-        };
+        document.onmouseup = () => { isDragging = false; };
     };
 
     // Initialize
     setTimeout(() => {
         createUI();
+        enhanceTable(); // Auto-enhance on load
         checkAutoCapture();
     }, 1500);
 })();
