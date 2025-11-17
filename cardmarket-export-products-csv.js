@@ -1,167 +1,159 @@
-// ==UserScript==
-// @name         Cardmarket Wants Extractor to CSV
-// @namespace    Violentmonkey Scripts
-// @match        https://www.cardmarket.com/*/*/Products/*
-// @grant        GM_download
-// @grant        GM_setClipboard
-// @version      1.5
-// @author       Your Name (corregido)
-// @description  Extrae la lista de "Wants" de Cardmarket (imágenes, nombres, enlaces) a un archivo CSV.
-// @icon         https://www.cardmarket.com/favicon.ico
-// ==/UserScript==
 
+// ==UserScript==
+// @name         Cardmarket Price History Extractor
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  Extract data, store history, and export CSV from Cardmarket
+// @author       You
+// @match        https://www.cardmarket.com/*/*/Products/*
+// @grant        none
+// ==/UserScript==
 
 (function() {
     'use strict';
 
-    function addExtractButton() {
-        const button = document.createElement('button');
-        button.textContent = 'Extraer a CSV';
-        button.style.position = 'fixed';
-        button.style.top = '120px'; // Adjusted to avoid overlapping with other CM elements
-        button.style.right = '20px';
-        button.style.zIndex = '10000';
-        button.style.padding = '10px 15px';
-        button.style.backgroundColor = '#28a745'; // Green
-        button.style.color = 'white';
-        button.style.border = 'none';
-        button.style.borderRadius = '5px';
-        button.style.cursor = 'pointer';
-        button.style.fontSize = '14px';
-        button.id = 'extract-csv-button';
+    const STORAGE_KEY = 'cm_price_history_v1';
 
-        button.addEventListener('click', extractDataToCSV);
-        document.body.appendChild(button);
-    }
+    // Helper to parse price string "0,03 €" -> 0.03
+    const parsePrice = (str) => {
+        if (!str) return 0;
+        const clean = str.replace(/[^0-9,]/g, '').replace(',', '.');
+        return parseFloat(clean) || 0;
+    };
 
-    function sanitizeForCSV(text) {
-        if (text === null || typeof text === 'undefined') {
-            return '';
-        }
-        let strText = String(text);
-        strText = strText.replace(/"/g, '""'); // Escape double quotes
-        if (strText.includes(',') || strText.includes('\n') || strText.includes('"')) {
-            strText = `"${strText}"`; // Enclose in double quotes if needed
-        }
-        return strText;
-    }
+    // Helper to get clean text
+    const getText = (el) => el ? el.innerText.trim() : '';
 
-    // --- FUNCIÓN DE EXTRACCIÓN TOTALMENTE REESCRITA ---
-    function extractDataToCSV() {
-        const data = [];
-        data.push(['Nombre', 'Enlace Completo', 'URL Imagen']); // CSV Header
-        const baseUrl = 'https://www.cardmarket.com';
+    const extractData = () => {
+        const rows = document.querySelectorAll('.table-body div[id^="productRow"]');
+        const currentData = [];
+        const timestamp = new Date().toISOString();
 
-        // Helper para extraer la imagen del nuevo popover (data-bs-content)
-        function extractImageFromPopover(element) {
-            if (!element) return '';
-            const popoverHtml = element.getAttribute('data-bs-content'); // Atributo cambiado
-            if (!popoverHtml) return '';
-            const imgMatch = popoverHtml.match(/src="([^"]+)"/);
-            // Decodificar &amp;
-            return imgMatch && imgMatch[1] ? imgMatch[1].replace(/&amp;/g, '&') : '';
-        }
+        rows.forEach(row => {
+            try {
+                const id = row.id.replace('productRow', '');
+                const nameEl = row.querySelector('.col-10 .d-flex a') || row.querySelector('.col-10 a');
+                const name = getText(nameEl);
+                
+                const expansionEl = row.querySelector('.col-icon.small a');
+                const expansion = expansionEl ? expansionEl.getAttribute('aria-label') : 'Unknown';
+                
+                const numberEl = row.querySelector('.col-md-2 div');
+                const number = getText(numberEl);
+                
+                const rarityEl = row.querySelector('.col-sm-2 svg');
+                const rarity = rarityEl ? rarityEl.getAttribute('aria-label') : 'Unknown';
+                
+                const availEl = row.querySelector('.col-availability span');
+                const availability = parseInt(getText(availEl)) || 0;
+                
+                const priceEl = row.querySelector('.col-price');
+                const price = parsePrice(getText(priceEl));
 
-        // 1. Intenta con la nueva tabla de ESCRITORIO
-        let rows = document.querySelectorAll('#wants-list-table tbody tr'); // ID de tabla cambiado
-        console.log(`Processing ${rows.length} rows from desktop view.`);
-
-        if (rows.length > 0) { // Vista de Escritorio
-            rows.forEach(row => {
-                // Selectores de celda completamente cambiados
-                const linkElement = row.querySelector('td[data-label="Nombre"] a');
-                const popoverElement = row.querySelector('a[data-bs-toggle="popover"]'); // La imagen está aquí
-
-                if (linkElement && popoverElement) {
-                    const name = linkElement.textContent.trim();
-                    let link = linkElement.getAttribute('href');
-                    if (link && !link.startsWith('http')) {
-                        link = baseUrl + link;
-                    }
-                    const imageUrl = extractImageFromPopover(popoverElement);
-                    data.push([name, link, imageUrl]);
-                } else {
-                    console.warn('Skipping a row in desktop view, missing elements:', row);
-                }
-            });
-        } else {
-            // 2. Fallback a la nueva vista MÓVIL (ya no es un acordeón)
-            rows = document.querySelectorAll('#wants-list-rows div.row.g-0'); // Selector de móvil cambiado
-            console.log(`Processing ${rows.length} rows from mobile view.`);
-
-            if (rows.length > 0) {
-                rows.forEach(item => {
-                    // Selectores de móvil completamente cambiados
-                    const linkElement = item.querySelector('.article-name a');
-                    const popoverElement = item.querySelector('a[data-bs-toggle="popover"]');
-
-                    if (linkElement && popoverElement) {
-                        const name = linkElement.textContent.trim();
-                        let link = linkElement.getAttribute('href');
-                        if (link && !link.startsWith('http')) {
-                            link = baseUrl + link;
-                        }
-                        const imageUrl = extractImageFromPopover(popoverElement);
-                        data.push([name, link, imageUrl]);
-                    } else {
-                        console.warn('Skipping an item in mobile view, missing elements:', item);
-                    }
+                currentData.push({
+                    id,
+                    name,
+                    expansion,
+                    number,
+                    rarity,
+                    availability,
+                    price,
+                    timestamp
                 });
-            }
-        }
-
-        if (data.length <= 1) { // Solo cabecera
-            alert('No se encontraron datos para extraer. La estructura de la página puede haber cambiado de nuevo.');
-            return;
-        }
-
-        const csvContent = data.map(row => row.map(sanitizeForCSV).join(',')).join('\n');
-
-        // --- Extracción de nombre de archivo MEJORADA ---
-        let listName = "cardmarket_wants";
-        // El selector '.page-title-container h1' ya no existe. Usamos el h1 principal.
-        const titleElement = document.querySelector('h1');
-        if (titleElement) {
-            listName = titleElement.textContent.trim()
-                .replace("Wants List:", "") // Limpia el prefijo
-                .trim()
-                .replace(/[^a-z0-9]+/gi, '_') // Limpia caracteres especiales
-                .toLowerCase();
-        }
-        if (listName === "" || listName.startsWith("_")) {
-             listName = "cardmarket_wants"; // Fallback
-        }
-        const filename = `${listName}.csv`;
-
-        // Descargar CSV
-        GM_download({
-            url: 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent),
-            name: filename,
-            saveAs: true,
-            onload: () => {
-                console.log('CSV descargado.');
-                alert(`CSV "${filename}" descargado.`);
-            },
-            onerror: (err) => {
-                console.error('Error al descargar:', err);
-                alert('Error al descargar el CSV.');
+            } catch (e) {
+                console.error('Error parsing row', e);
             }
         });
+        return currentData;
+    };
 
-        // Copiar al portapapeles
-        try {
-            GM_setClipboard(csvContent);
-            console.log('Contenido CSV copiado al portapapeles.');
-        } catch (e) {
-            console.error('Error al copiar al portapapeles:', e);
+    const saveData = (newData) => {
+        const existingStoreStr = localStorage.getItem(STORAGE_KEY);
+        let store = existingStoreStr ? JSON.parse(existingStoreStr) : { history: [] };
+        
+        // Append new data to history
+        store.history.push(...newData);
+        
+        // Optional: Limit history size if needed, but for text data localStorage is usually fine for a while
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+        
+        alert(`Captured ${newData.length} items. Total history size: ${store.history.length} records.`);
+    };
+
+    const downloadCSV = () => {
+        const existingStoreStr = localStorage.getItem(STORAGE_KEY);
+        if (!existingStoreStr) {
+            alert('No history found. Please click "Capture Prices" first.');
+            return;
         }
-    }
+        const store = JSON.parse(existingStoreStr);
+        
+        const headers = ['Timestamp', 'ID', 'Name', 'Expansion', 'Number', 'Rarity', 'Availability', 'Price'];
+        const rows = store.history.map(item => [
+            item.timestamp,
+            item.id,
+            `"${item.name.replace(/"/g, '""')}"`, // Escape quotes in CSV
+            `"${item.expansion.replace(/"/g, '""')}"`,
+            item.number,
+            item.rarity,
+            item.availability,
+            item.price
+        ].join(','));
 
-    // Espera a que la página esté cargada para añadir el botón
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', addExtractButton);
-    } else {
-        addExtractButton();
-    }
+        const csvContent = [headers.join(','), ...rows].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'cardmarket_history.csv');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
+    const clearHistory = () => {
+        if(confirm('Are you sure you want to clear all price history?')) {
+            localStorage.removeItem(STORAGE_KEY);
+            alert('History cleared.');
+        }
+    };
+
+    // Create UI
+    const createUI = () => {
+        const container = document.createElement('div');
+        container.style.cssText = 'position: fixed; bottom: 20px; right: 20px; z-index: 9999; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; gap: 5px; border: 1px solid #ccc;';
+        
+        const title = document.createElement('div');
+        title.innerText = 'CM Tracker';
+        title.style.fontWeight = 'bold';
+        title.style.marginBottom = '5px';
+        title.style.textAlign = 'center';
+        container.appendChild(title);
+
+        const btnCapture = document.createElement('button');
+        btnCapture.innerText = '📥 Capture Current';
+        btnCapture.style.cssText = 'padding: 5px 10px; cursor: pointer; background: #3b82f6; color: white; border: none; border-radius: 4px;';
+        btnCapture.onclick = () => {
+            const data = extractData();
+            saveData(data);
+        };
+        container.appendChild(btnCapture);
+
+        const btnDownload = document.createElement('button');
+        btnDownload.innerText = '💾 Download CSV';
+        btnDownload.style.cssText = 'padding: 5px 10px; cursor: pointer; background: #10b981; color: white; border: none; border-radius: 4px;';
+        btnDownload.onclick = downloadCSV;
+        container.appendChild(btnDownload);
+
+        const btnClear = document.createElement('button');
+        btnClear.innerText = '🗑️ Clear History';
+        btnClear.style.cssText = 'padding: 5px 10px; cursor: pointer; background: #ef4444; color: white; border: none; border-radius: 4px; font-size: 10px;';
+        btnClear.onclick = clearHistory;
+        container.appendChild(btnClear);
+
+        document.body.appendChild(container);
+    };
+
+    // Initialize
+    setTimeout(createUI, 2000); // Wait for dynamic content if any
 })();
