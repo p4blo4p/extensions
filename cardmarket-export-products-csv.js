@@ -1,7 +1,8 @@
+
 // ==UserScript==
 // @name         Cardmarket Price History Extractor
 // @namespace    http://tampermonkey.net/
-// @version      1.9.1
+// @version      1.9.2
 // @description  Extract data, store history, and export CSV from Cardmarket
 // @author       You
 // @match        https://www.cardmarket.com/*/*/Products/*
@@ -30,7 +31,7 @@
         head.appendChild(style);
     };
 
-    addGlobalStyle(\`
+    addGlobalStyle(`
         .col-availability span.d-none { display: inline !important; }
         .col-availability span { display: inline !important; }
         @media (max-width: 768px) {
@@ -41,7 +42,7 @@
                 justify-content: flex-end;
             }
         }
-    \`);
+    `);
 
     // --- HELPERS ---
     const parsePrice = (str) => {
@@ -51,26 +52,6 @@
     };
 
     const getText = (el) => el ? el.innerText.trim() : '';
-
-    // --- VISUALS: COLOR CODING ---
-    const applyAvailabilityColors = () => {
-        const elements = document.querySelectorAll('.col-availability');
-        elements.forEach(el => {
-            const text = el.innerText.replace(/[^0-9]/g, '');
-            const count = parseInt(text, 10);
-            
-            if (!isNaN(count)) {
-                el.style.fontWeight = 'bold';
-                if (count < 300) {
-                    el.style.color = '#dc2626'; // Red 600
-                } else if (count < 1000) {
-                    el.style.color = '#f97316'; // Orange 500
-                } else {
-                    el.style.color = '#16a34a'; // Green 600
-                }
-            }
-        });
-    };
 
     // --- EXTRACTION LOGIC ---
     const extractData = () => {
@@ -112,7 +93,7 @@
                 let image = '';
                 if (imgIcon) {
                     const tooltipContent = imgIcon.getAttribute('data-bs-title') || imgIcon.getAttribute('data-original-title') || '';
-                    const urlMatch = tooltipContent.match(/src=['"]?([^'"\\s>]+)['"]?/); 
+                    const urlMatch = tooltipContent.match(/src=['"]?([^'"\s>]+)['"]?/); 
                     const entityMatch = tooltipContent.match(/src=&quot;(.*?)&quot;/);
                     
                     if (entityMatch && entityMatch[1]) {
@@ -149,13 +130,13 @@
         localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
         
         if (!isAuto) {
-            alert(\`Captured \${newData.length} items. Total history: \${store.history.length}.\`);
+            alert(`Captured ${newData.length} items. Total history: ${store.history.length}.`);
             const today = new Date().toDateString();
             localStorage.setItem(getAutoRunKey(), today);
         } else {
-            console.log(\`[CM Tracker] Auto-captured \${newData.length} items.\`);
+            console.log(`[CM Tracker] Auto-captured ${newData.length} items.`);
             const toast = document.createElement('div');
-            toast.innerText = \`✅ Auto-captured \${newData.length} prices\`;
+            toast.innerText = `✅ Auto-captured ${newData.length} prices`;
             toast.style.cssText = 'position: fixed; top: 10px; right: 10px; background: #4ade80; color: #064e3b; padding: 5px 10px; border-radius: 4px; z-index: 10000; font-size: 12px; opacity: 0.9; pointer-events: none;';
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);
@@ -191,17 +172,17 @@
         const rows = store.history.map(item => [
             item.timestamp,
             item.id,
-            \`"\${(item.name || '').replace(/"/g, '""')}"\`,
-            \`"\${(item.expansion || '').replace(/"/g, '""')}"\`,
+            `"${(item.name || '').replace(/"/g, '""')}"`,
+            `"${(item.expansion || '').replace(/"/g, '""')}"`,
             item.number,
             item.rarity,
             item.availability,
             item.price,
-            \`"\${(item.link || '')}"\`,
-            \`"\${(item.image || '')}"\`
+            `"${(item.link || '')}"`,
+            `"${(item.image || '')}"`
         ].join(','));
 
-        const csvContent = [headers.join(','), ...rows].join('\\n');
+        const csvContent = [headers.join(','), ...rows].join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -263,7 +244,7 @@
         const createBtn = (label, color, onClick) => {
             const btn = document.createElement('button');
             btn.innerText = label;
-            btn.style.cssText = \`padding: 8px 12px; border: none; border-radius: 4px; background: \${color}; color: white; font-weight: 600; cursor: pointer; transition: opacity 0.2s;\`;
+            btn.style.cssText = `padding: 8px 12px; border: none; border-radius: 4px; background: ${color}; color: white; font-weight: 600; cursor: pointer; transition: opacity 0.2s;`;
             btn.onmouseover = () => btn.style.opacity = '0.9';
             btn.onmouseout = () => btn.style.opacity = '1';
             btn.onclick = onClick;
@@ -273,7 +254,6 @@
         content.appendChild(createBtn('📥 Capture', '#3b82f6', () => {
             const data = extractData();
             saveData(data);
-            applyAvailabilityColors(); // Re-apply colors just in case
         }));
         content.appendChild(createBtn('💾 Export CSV', '#10b981', downloadCSV));
         content.appendChild(createBtn('🗑️ Reset', '#ef4444', clearHistory));
@@ -337,7 +317,6 @@
     // Initialize
     setTimeout(() => {
         createUI();
-        applyAvailabilityColors();
         checkAutoCapture();
     }, 1500);
 })();
