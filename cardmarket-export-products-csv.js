@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cardmarket Price History Extractor
 // @namespace    http://tampermonkey.net/
-// @version      1.9
+// @version      1.9.1
 // @description  Extract data, store history, and export CSV from Cardmarket
 // @author       You
 // @match        https://www.cardmarket.com/*/*/Products/*
