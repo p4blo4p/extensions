@@ -1,4 +1,3 @@
-export const USERSCRIPT_CODE = `
 // ==UserScript==
 // @name         Cardmarket Price History Extractor
 // @namespace    http://tampermonkey.net/
@@ -342,4 +341,3 @@ export const USERSCRIPT_CODE = `
         checkAutoCapture();
     }, 1500);
 })();
-`;
