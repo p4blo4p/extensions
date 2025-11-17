@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         Cardmarket Price History Extractor
 // @namespace    http://tampermonkey.net/
-// @version      1.7
+// @version      1.8
 // @description  Extract data, store history, and export CSV from Cardmarket
 // @author       You
 // @match        https://www.cardmarket.com/*/*/Products/*
@@ -14,7 +14,15 @@
     'use strict';
 
     const STORAGE_KEY = 'cm_price_history_v1';
-    const LAST_RUN_KEY = 'cm_last_auto_run_date';
+    
+    // Helper to generate a unique key for the current page view
+    // This ensures we track daily captures per specific URL (including filters/pages)
+    const getAutoRunKey = () => {
+        // We use pathname + search to distinguish between different filters/pages
+        // e.g., /Magic/Products/Singles?idExpansion=123 vs /Magic/Products/Singles?site=2
+        const key = window.location.pathname + window.location.search;
+        return 'cm_last_auto_run_' + key;
+    };
 
     // --- CSS INJECTION FOR MOBILE VISIBILITY ---
     const addGlobalStyle = (css) => {
@@ -27,11 +35,19 @@
     };
 
     // Force availability count to be visible on mobile
+    // We override the bootstrap 'd-none' classes specifically for the availability column
     addGlobalStyle(`
         .col-availability span.d-none { display: inline !important; }
-        /* Optional: Adjust font size on mobile to prevent wrapping if needed */
-        @media (max-width: 576px) {
-            .col-availability { font-size: 0.8rem; }
+        .col-availability span { display: inline !important; }
+        
+        /* Adjust font size and layout on mobile to fit the extra data */
+        @media (max-width: 768px) {
+            .col-availability { 
+                font-size: 0.75rem; 
+                display: flex !important;
+                align-items: center;
+                justify-content: flex-end;
+            }
         }
     `);
 
@@ -72,8 +88,10 @@
                 const rarity = rarityEl ? rarityEl.getAttribute('aria-label') : 'Unknown';
                 
                 // Availability
-                const availEl = row.querySelector('.col-availability span');
-                const availability = parseInt(getText(availEl)) || 0;
+                // On mobile/desktop Cardmarket uses different spans, sometimes hidden.
+                // We grab text from the whole container or visible spans.
+                const availEl = row.querySelector('.col-availability');
+                const availability = parseInt(availEl ? availEl.innerText.replace(/[^0-9]/g, '') : '0') || 0;
                 
                 // Price
                 const priceEl = row.querySelector('.col-price');
@@ -86,10 +104,16 @@
                 let image = '';
                 if (imgIcon) {
                     const tooltipContent = imgIcon.getAttribute('data-bs-title') || imgIcon.getAttribute('data-original-title') || '';
-                    // Match src=&quot;URL&quot;
-                    const match = tooltipContent.match(/src=&quot;(.*?)&quot;/);
-                    if (match && match[1]) {
-                        image = match[1];
+                    // Match src=&quot;URL&quot; or src="URL"
+                    const match = tooltipContent.match(/src=[\"|&quot;]*(.*?)[\"|&quot;]*/);
+                    // Simple regex check to grab the url between potential quotes/entities
+                    const urlMatch = tooltipContent.match(/src=['"]?([^'"s>]+)['"]?/); // Standard HTML
+                    const entityMatch = tooltipContent.match(/src=&quot;(.*?)&quot;/); // Escaped HTML
+                    
+                    if (entityMatch && entityMatch[1]) {
+                        image = entityMatch[1];
+                    } else if (urlMatch && urlMatch[1]) {
+                        image = urlMatch[1];
                     }
                 }
 
@@ -121,12 +145,14 @@
         
         if (!isAuto) {
             alert(`Captured ${newData.length} items. Total history: ${store.history.length}.`);
+            // Update the auto-run key manually so we don't auto-capture again today for this URL
+            const today = new Date().toDateString();
+            localStorage.setItem(getAutoRunKey(), today);
         } else {
             console.log(`[CM Tracker] Auto-captured ${newData.length} items.`);
-            // Small toast for auto-capture
             const toast = document.createElement('div');
             toast.innerText = `✅ Auto-captured ${newData.length} prices`;
-            toast.style.cssText = 'position: fixed; top: 10px; right: 10px; background: #4ade80; color: #064e3b; padding: 5px 10px; border-radius: 4px; z-index: 10000; font-size: 12px; opacity: 0.9;';
+            toast.style.cssText = 'position: fixed; top: 10px; right: 10px; background: #4ade80; color: #064e3b; padding: 5px 10px; border-radius: 4px; z-index: 10000; font-size: 12px; opacity: 0.9; pointer-events: none;';
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);
         }
@@ -134,14 +160,16 @@
 
     // --- AUTO CAPTURE ---
     const checkAutoCapture = () => {
-        const today = new Date().toDateString(); // "Mon Jan 01 2024"
-        const lastRun = localStorage.getItem(LAST_RUN_KEY);
+        const today = new Date().toDateString(); 
+        const key = getAutoRunKey();
+        const lastRun = localStorage.getItem(key);
 
+        // If we haven't run for THIS specific URL today, do it.
         if (lastRun !== today) {
             const data = extractData();
             if (data.length > 0) {
                 saveData(data, true);
-                localStorage.setItem(LAST_RUN_KEY, today);
+                localStorage.setItem(key, today);
             }
         }
     };
@@ -155,7 +183,10 @@
         }
         const store = JSON.parse(existingStoreStr);
         
+        // CSV Headers
         const headers = ['Timestamp', 'ID', 'Name', 'Expansion', 'Number', 'Rarity', 'Availability', 'Price', 'Link', 'Image'];
+        
+        // Map data to CSV rows
         const rows = store.history.map(item => [
             item.timestamp,
             item.id,
@@ -183,7 +214,12 @@
     const clearHistory = () => {
         if(confirm('Clear all price history?')) {
             localStorage.removeItem(STORAGE_KEY);
-            localStorage.removeItem(LAST_RUN_KEY);
+            // Also clear all auto-run keys to allow immediate re-capture
+            Object.keys(localStorage).forEach(key => {
+                if(key.startsWith('cm_last_auto_run_')) {
+                    localStorage.removeItem(key);
+                }
+            });
             alert('History cleared.');
         }
     };
@@ -194,7 +230,7 @@
         container.style.cssText = 'position: fixed; bottom: 20px; right: 20px; z-index: 9999; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; gap: 5px; border: 1px solid #ccc; font-family: sans-serif; font-size: 12px;';
         
         const title = document.createElement('div');
-        title.innerText = 'CM Tracker v1.6';
+        title.innerText = 'CM Tracker v1.8';
         title.style.fontWeight = 'bold';
         title.style.textAlign = 'center';
         title.style.marginBottom = '5px';
@@ -206,8 +242,6 @@
         btnCapture.onclick = () => {
             const data = extractData();
             saveData(data);
-            // Reset auto-run key so it counts as today's run
-            localStorage.setItem(LAST_RUN_KEY, new Date().toDateString());
         };
         container.appendChild(btnCapture);
 
