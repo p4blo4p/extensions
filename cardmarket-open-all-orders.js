@@ -1,12 +1,10 @@
 // ==UserScript==
 // @name        Cardmarket Bulk Order Opener
 // @namespace   Violentmonkey Scripts
-// @match       https://www.cardmarket.com/*/Magic/Orders/Received*
-// @match       https://www.cardmarket.com/*/Magic/Sales/Sent*
-// @match       https://www.cardmarket.com/*/Magic/Orders/Sent*
-// @match       https://www.cardmarket.com/*/Magic/Sales/Received*
+// @match       https://www.cardmarket.com/*/*/Orders/Received*
+// @match       https://www.cardmarket.com/*/*/Sales/Received*
 // @grant       GM_openInTab
-// @version     1.2
+// @version     1.2.1
 // @author      Cardmarket Power Tools
 // @icon        https://www.cardmarket.com/favicon.ico
 // @description Adds a floating button to open all order links in new tabs.
