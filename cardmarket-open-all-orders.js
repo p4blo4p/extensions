@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name        Cardmarket Power Pack
 // @namespace   Violentmonkey Scripts
-// @match       https://www.cardmarket.com/*/*/Orders/*
+// @match       https://www.cardmarket.com/*/*/Orders/*/Arrived
 // @match       https://www.cardmarket.com/*/*/Sales/*
 // @grant       GM_openInTab
-// @version     1.3.0
+// @version     1.3.1
 // @author      Cardmarket Power Tools
 // @icon        https://www.cardmarket.com/favicon.ico
 // @description Open all orders in tabs and export table to CSV.
