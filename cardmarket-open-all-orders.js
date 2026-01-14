@@ -6,10 +6,10 @@
 // @match       https://www.cardmarket.com/*/Magic/Orders/Sent*
 // @match       https://www.cardmarket.com/*/Magic/Sales/Received*
 // @grant       GM_openInTab
-// @version     1.1
+// @version     1.2
 // @author      Cardmarket Power Tools
-// @description Adds a highly visible button to open all order links in new tabs.
-// @icon         https://www.cardmarket.com/favicon.ico
+// @icon        https://www.cardmarket.com/favicon.ico
+// @description Adds a floating button to open all order links in new tabs.
 // ==/UserScript==
 
 (function() {
@@ -18,71 +18,80 @@
     function init() {
         if (document.getElementById('bulk-order-opener-btn')) return;
 
-        // Intentar encontrar el contenedor principal de la tabla o el título de la página
-        const insertionPoint = document.querySelector('.table-responsive') || 
-                               document.querySelector('h1') || 
-                               document.querySelector('.container main');
-
-        if (!insertionPoint) return;
-
         const btn = document.createElement('button');
         btn.id = 'bulk-order-opener-btn';
-        btn.innerHTML = '🚀 Abrir todos los pedidos';
+        btn.innerHTML = '🚀'; // Usamos un icono para que sea compacto en móvil
+        btn.title = 'Abrir todos los pedidos';
         
-        // Estilos para asegurar visibilidad total
+        // Estilos para botón flotante (Overlay)
         Object.assign(btn.style, {
+            position: 'fixed',
+            bottom: '20px',
+            right: '20px',
+            width: '60px',
+            height: '60px',
             backgroundColor: '#007bff',
             color: 'white',
             border: 'none',
-            borderRadius: '4px',
-            padding: '10px 20px',
-            fontSize: '14px',
+            borderRadius: '50%',
+            fontSize: '24px',
             fontWeight: 'bold',
             cursor: 'pointer',
-            marginBottom: '15px',
-            marginRight: '10px',
-            display: 'inline-block',
-            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-            zIndex: '9999'
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            zIndex: '10000',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
         });
 
-        btn.onmouseover = () => btn.style.backgroundColor = '#0056b3';
-        btn.onmouseout = () => btn.style.backgroundColor = '#007bff';
+        // Efecto visual al pulsar
+        btn.onmousedown = () => btn.style.transform = 'scale(0.9)';
+        btn.onmouseup = () => btn.style.transform = 'scale(1)';
 
         btn.onclick = (e) => {
             e.preventDefault();
             
-            // Buscar enlaces que apunten específicamente a detalles de pedido
-            // En Cardmarket suelen tener este formato: /en/Magic/Order/123456
-            const orderLinks = Array.from(document.querySelectorAll('a[href*="/Order/"]'))
-                .filter(a => !a.href.includes('/Settings') && !a.href.includes('/Help'));
-            
-            const uniqueHrefs = [...new Set(orderLinks.map(a => a.href))];
+            // 1. Buscar en etiquetas <a> que contengan /Order/ o /Orders/
+            const linksFromAnchors = Array.from(document.querySelectorAll('a'))
+                .map(a => a.href)
+                .filter(href => href.includes('/Order/'));
 
-            if (uniqueHrefs.length === 0) {
+            // 2. Buscar en elementos con data-url (filas de la tabla en Cardmarket)
+            const linksFromDataUrls = Array.from(document.querySelectorAll('[data-url]'))
+                .map(el => {
+                    const url = el.getAttribute('data-url');
+                    // Convertir ruta relativa a absoluta si es necesario
+                    return url.startsWith('http') ? url : window.location.origin + url;
+                })
+                .filter(url => url.includes('/Order/'));
+
+            // Combinar y eliminar duplicados
+            const allLinks = [...new Set([...linksFromAnchors, ...linksFromDataUrls])];
+
+            if (allLinks.length === 0) {
                 alert('¡No se encontraron pedidos en esta página!');
                 return;
             }
 
-            if (confirm(`¿Abrir ${uniqueHrefs.length} pedidos en pestañas nuevas?`)) {
-                uniqueHrefs.forEach(href => {
+            if (confirm(`¿Abrir ${allLinks.length} pedidos en pestañas nuevas?`)) {
+                allLinks.forEach(href => {
                     GM_openInTab(href, { active: false, insert: true });
                 });
             }
         };
 
-        // Insertar antes de la tabla o después del título
-        if (insertionPoint.tagName === 'H1') {
-            insertionPoint.parentNode.insertBefore(btn, insertionPoint.nextSibling);
-        } else {
-            insertionPoint.parentNode.insertBefore(btn, insertionPoint);
-        }
+        document.body.appendChild(btn);
     }
 
     // Ejecutar al cargar
-    window.addEventListener('load', init);
+    if (document.readyState === 'complete') {
+        init();
+    } else {
+        window.addEventListener('load', init);
+    }
     
-    // Observador por si el contenido carga dinámicamente
+    // Observador para asegurar que el botón persista en cambios de página AJAX
     const observer = new MutationObserver(() => {
         if (!document.getElementById('bulk-order-opener-btn')) {
             init();
