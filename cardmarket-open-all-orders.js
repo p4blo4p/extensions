@@ -1,17 +1,24 @@
 // ==UserScript==
 // @name        Cardmarket Power Pack
 // @namespace   Violentmonkey Scripts
-// @match       https://www.cardmarket.com/*/*/Orders/*/Arrived
+// @match       https://www.cardmarket.com/*/*/Orders/*
 // @match       https://www.cardmarket.com/*/*/Sales/*
 // @grant       GM_openInTab
-// @version     1.3.1
+// @version     1.4.0
 // @author      Cardmarket Power Tools
 // @icon        https://www.cardmarket.com/favicon.ico
-// @description Open all orders in tabs and export table to CSV.
+// @description Open all orders with autoexport param and export table to CSV.
 // ==/UserScript==
 
 (function() {
     'use strict';
+
+    // Función para añadir parámetros a la URL de forma segura
+    function appendAutoExport(url) {
+        const param = 'autoexport=true';
+        const separator = url.includes('?') ? '&' : '?';
+        return `${url}${separator}${param}`;
+    }
 
     function getOrderLinks() {
         // Buscamos tanto en 'a' como en elementos con 'data-url'
@@ -24,9 +31,11 @@
                 return url.startsWith('http') ? url : window.location.origin + url;
             });
 
-        // Combinar, normalizar y eliminar duplicados (especialmente para IDs de pedido)
+        // Combinar, normalizar y eliminar duplicados
         const all = [...new Set([...fromAnchors, ...fromDataUrls])];
-        // Filtrar para asegurar que son enlaces de pedido real (no settings o help)
+        
+        // Filtrar enlaces de pedidos válidos (ej: /es/Magic/Orders/123456)
+        // Buscamos patrones que terminen en números después de /Orders/ o /Order/
         return all.filter(url => /\/Orders?\/\d+/.test(url));
     }
 
@@ -46,7 +55,7 @@
             const date = row.querySelector('.col-datetime span')?.innerText || "N/A";
             const price = row.querySelector('.col-price div')?.innerText || "0";
             
-            // Limpiar datos
+            // Limpiar datos para el CSV
             const cleanUser = user.replace(/\n/g, '').trim();
             const cleanPrice = price.replace(/\n/g, '').trim().replace('€', '').trim();
             
@@ -96,16 +105,19 @@
     }
 
     function init() {
-        // Botón 1: Abrir todos (Azul)
-        createButton('bulk-order-opener-btn', '🚀', 'Abrir todos los pedidos', '#007bff', 20, (e) => {
+        // Botón 1: Abrir todos con autoexport (Azul)
+        createButton('bulk-order-opener-btn', '🚀', 'Abrir todos con Auto-Export', '#007bff', 20, (e) => {
             e.preventDefault();
             const links = getOrderLinks();
             if (links.length === 0) {
-                alert('¡No se encontraron pedidos! Verifica que estás en la pestaña de Recibidos/Enviados.');
+                alert('No se encontraron pedidos. Asegúrate de estar en la página de pedidos o ventas.');
                 return;
             }
-            if (confirm(`¿Abrir ${links.length} pedidos en pestañas nuevas?`)) {
-                links.forEach(url => GM_openInTab(url, { active: false, insert: true }));
+            if (confirm(`¿Abrir ${links.length} pedidos con autoexport=true?`)) {
+                links.forEach(url => {
+                    const finalUrl = appendAutoExport(url);
+                    GM_openInTab(finalUrl, { active: false, insert: true });
+                });
             }
         });
 
@@ -119,6 +131,7 @@
     if (document.readyState === 'complete') init();
     else window.addEventListener('load', init);
 
+    // Observer para aplicaciones de una sola página (SPA) o carga dinámica
     const observer = new MutationObserver(() => {
         if (!document.getElementById('bulk-order-opener-btn')) init();
     });
