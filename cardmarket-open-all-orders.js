@@ -4,7 +4,7 @@
 // @match       https://www.cardmarket.com/*/*/Orders/Purchases/Arrived*
 // @match       https://www.cardmarket.com/*/*/Sales/Sent*
 // @grant       GM_openInTab
-// @version     1.0
+// @version     1.0.1
 // @author      Cardmarket Power Tools
 // @description Adds a button to open all order links in new tabs automatically.
 // ==/UserScript==
