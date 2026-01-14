@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        Cardmarket Bulk Order Opener
 // @namespace   Violentmonkey Scripts
-// @match       https://www.cardmarket.com/*/Magic/Orders/Received*
-// @match       https://www.cardmarket.com/*/Magic/Sales/Sent*
+// @match       https://www.cardmarket.com/*/*/Orders/Purchases/Arrived*
+// @match       https://www.cardmarket.com/*/*/Sales/Sent*
 // @grant       GM_openInTab
 // @version     1.0
 // @author      Cardmarket Power Tools
