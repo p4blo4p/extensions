@@ -7,6 +7,7 @@
 // @version     1.0.1
 // @author      Cardmarket Power Tools
 // @description Adds a button to open all order links in new tabs automatically.
+// @icon         https://www.cardmarket.com/favicon.ico
 // ==/UserScript==
 
 (function() {
