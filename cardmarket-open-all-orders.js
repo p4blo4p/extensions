@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name        Cardmarket Bulk Order Opener
 // @namespace   Violentmonkey Scripts
-// @match       https://www.cardmarket.com/*/*/Orders/Purchases/Arrived*
-// @match       https://www.cardmarket.com/*/*/Sales/Sent*
+// @match       https://www.cardmarket.com/*/Magic/Orders/Received*
+// @match       https://www.cardmarket.com/*/Magic/Sales/Sent*
+// @match       https://www.cardmarket.com/*/Magic/Orders/Sent*
+// @match       https://www.cardmarket.com/*/Magic/Sales/Received*
 // @grant       GM_openInTab
-// @version     1.0.1
+// @version     1.1
 // @author      Cardmarket Power Tools
-// @description Adds a button to open all order links in new tabs automatically.
+// @description Adds a highly visible button to open all order links in new tabs.
 // @icon         https://www.cardmarket.com/favicon.ico
 // ==/UserScript==
 
@@ -14,49 +16,73 @@
     'use strict';
 
     function init() {
-        // Find the location to insert the button
-        // Usually, Cardmarket uses a div with class "table-responsive" or similar
-        const targetContainer = document.querySelector('.table-responsive') || document.querySelector('main');
-        if (!targetContainer || document.getElementById('bulk-order-opener-btn')) return;
+        if (document.getElementById('bulk-order-opener-btn')) return;
+
+        // Intentar encontrar el contenedor principal de la tabla o el título de la página
+        const insertionPoint = document.querySelector('.table-responsive') || 
+                               document.querySelector('h1') || 
+                               document.querySelector('.container main');
+
+        if (!insertionPoint) return;
 
         const btn = document.createElement('button');
         btn.id = 'bulk-order-opener-btn';
         btn.innerHTML = '🚀 Abrir todos los pedidos';
         
-        // Match Cardmarket's primary button style
-        btn.className = 'btn btn-primary mb-3 mr-2';
-        btn.style.fontWeight = 'bold';
-        btn.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+        // Estilos para asegurar visibilidad total
+        Object.assign(btn.style, {
+            backgroundColor: '#007bff',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            padding: '10px 20px',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            marginBottom: '15px',
+            marginRight: '10px',
+            display: 'inline-block',
+            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+            zIndex: '9999'
+        });
+
+        btn.onmouseover = () => btn.style.backgroundColor = '#0056b3';
+        btn.onmouseout = () => btn.style.backgroundColor = '#007bff';
 
         btn.onclick = (e) => {
             e.preventDefault();
-            // Select all links that point to an order detail page
-            // Adjust the selector based on the specific page structure if needed
-            const orderLinks = Array.from(document.querySelectorAll('a[href*="/Order/"]'));
             
-            // Filter to get unique IDs to avoid opening the same order multiple times (if multiple links exist per row)
+            // Buscar enlaces que apunten específicamente a detalles de pedido
+            // En Cardmarket suelen tener este formato: /en/Magic/Order/123456
+            const orderLinks = Array.from(document.querySelectorAll('a[href*="/Order/"]'))
+                .filter(a => !a.href.includes('/Settings') && !a.href.includes('/Help'));
+            
             const uniqueHrefs = [...new Set(orderLinks.map(a => a.href))];
 
             if (uniqueHrefs.length === 0) {
-                alert('No orders found on this page!');
+                alert('¡No se encontraron pedidos en esta página!');
                 return;
             }
 
-            if (confirm(`Open ${uniqueHrefs.length} orders in new tabs?`)) {
+            if (confirm(`¿Abrir ${uniqueHrefs.length} pedidos en pestañas nuevas?`)) {
                 uniqueHrefs.forEach(href => {
                     GM_openInTab(href, { active: false, insert: true });
                 });
             }
         };
 
-        // Insert at the top of the table or main area
-        targetContainer.parentNode.insertBefore(btn, targetContainer);
+        // Insertar antes de la tabla o después del título
+        if (insertionPoint.tagName === 'H1') {
+            insertionPoint.parentNode.insertBefore(btn, insertionPoint.nextSibling);
+        } else {
+            insertionPoint.parentNode.insertBefore(btn, insertionPoint);
+        }
     }
 
-    // Run on load and whenever the content changes (for AJAX pagination if applicable)
+    // Ejecutar al cargar
     window.addEventListener('load', init);
     
-    // Fallback for dynamic content loading
+    // Observador por si el contenido carga dinámicamente
     const observer = new MutationObserver(() => {
         if (!document.getElementById('bulk-order-opener-btn')) {
             init();
