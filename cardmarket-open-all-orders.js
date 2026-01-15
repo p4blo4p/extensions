@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name        Cardmarket Power Pack
+// @name        Cardmarket Open Orders
 // @namespace   Violentmonkey Scripts
-// @match       https://www.cardmarket.com/*/*/Orders/*
+// @match       https://www.cardmarket.com/*/*/Orders/Purchases/Arrived*
 // @match       https://www.cardmarket.com/*/*/Sales/*
 // @grant       GM_openInTab
-// @version     1.4.0
+// @version     1.4.1
 // @author      Cardmarket Power Tools
 // @icon        https://www.cardmarket.com/favicon.ico
 // @description Open all orders with autoexport param and export table to CSV.
