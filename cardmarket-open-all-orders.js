@@ -4,7 +4,7 @@
 // @match       https://www.cardmarket.com/*/*/Orders/Purchases/Arrived*
 // @match       https://www.cardmarket.com/*/*/Orders/Sales/Arrived*
 // @grant       GM_openInTab
-// @version     1.4.1
+// @version     1.4.2
 // @author      Cardmarket Power Tools
 // @icon        https://www.cardmarket.com/favicon.ico
 // @description Open all orders with autoexport param and export table to CSV.
@@ -50,8 +50,14 @@
 
         rows.forEach(row => {
             const id = row.getAttribute('data-url').split('/').pop();
-            const user = row.querySelector('.seller-name span:last-child')?.innerText || 
+            
+            // CORRECCIÓN AQUÍ:
+            // El HTML actual tiene el usuario en el 2do span de .seller-name, 
+            // específicamente dentro de .has-content-centered
+            const user = row.querySelector('.seller-name .has-content-centered')?.innerText ||
+                         row.querySelector('.seller-name span:nth-child(2)')?.innerText || 
                          row.querySelector('.col-username')?.innerText || "Desconocido";
+            
             const date = row.querySelector('.col-datetime span')?.innerText || "N/A";
             const price = row.querySelector('.col-price div')?.innerText || "0";
             
