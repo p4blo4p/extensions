@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cardmarket Multi-Game Singles Counter
 // @namespace    http://tampermonkey.net/
-// @version      1.2
-// @description  Añade contadores de cartas sueltas de otros juegos y enlaces directos al perfil.
+// @version      1.3
+// @description  Muestra contadores de otros juegos con caché local y UI optimizada para móvil.
 // @author       TuAsistente
 // @match        https://www.cardmarket.com/*/Users/*
 // @match        https://www.cardmarket.com/*/Users/Offers/*
@@ -15,7 +15,7 @@
 (function() {
     'use strict';
 
-    // Configuración de juegos a buscar
+    // --- CONFIGURACIÓN ---
     const TARGET_GAMES = {
         'Magic': 'Magic',
         'YuGiOh': 'Yu-Gi-Oh!',
@@ -24,32 +24,92 @@
         'Riftbound': 'Riftbound'
     };
 
-    // Estilos CSS para asegurar que se vea bien y rápido
+    // Tiempo de vida del caché en milisegundos (24 horas)
+    const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; 
+
+    // --- ESTILOS CSS ---
+    // Solución para el problema de scroll en móvil: 'touch-action: pan-y' permite el scroll vertical.
+    // 'user-select: none' evita que se seleccione el texto al intentar hacer scroll.
     GM_addStyle(`
-        .cm-multigame-card {
-            background-color: #2c2c2c; /* Fondo oscuro estilo Cardmarket */
-            border: 1px solid #444;
-            transition: all 0.3s ease;
+        .cm-multigame-container {
+            margin-bottom: 1rem;
         }
-        .cm-multigame-card:hover {
-            border-color: #fff;
-            transform: translateY(-2px);
+        .cm-multigame-card {
+            background-color: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            transition: background-color 0.2s;
+            text-decoration: none !important;
+            display: block;
+            /* Fix para scroll móvil */
+            touch-action: pan-y; 
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .cm-multigame-card:hover, .cm-multigame-card:active {
+            background-color: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
             text-decoration: none;
         }
-        .cm-multigame-title {
-            color: #fff; /* Texto blanco */
+        .cm-multigame-card .card-title {
+            color: #fff;
+            font-size: 1rem;
+            margin-bottom: 0;
+        }
+        .cm-multigame-card .bracketed {
+            color: #aaa !important;
+        }
+        /* Ajuste para pantallas pequeñas */
+        @media (max-width: 768px) {
+            .cm-multigame-card .card-title {
+                font-size: 0.9rem;
+            }
         }
     `);
 
-    /**
-     * Extrae el nombre de usuario, idioma y juego actual de la URL actual.
-     * Funciona tanto en /Users/Nombre como en /Users/Nombre/Offers
-     */
+    // --- GESTIÓN DE CACHÉ ---
+
+    function getCacheKey(username, gameId) {
+        return `cm_multigame_${username}_${gameId}`;
+    }
+
+    function getFromCache(key) {
+        try {
+            const item = localStorage.getItem(key);
+            if (!item) return null;
+
+            const data = JSON.parse(item);
+            const now = Date.now();
+
+            // Si el dato es más antiguo que CACHE_DURATION_MS, se borra y se ignora
+            if (now - data.timestamp > CACHE_DURATION_MS) {
+                localStorage.removeItem(key);
+                return null;
+            }
+            return data.count;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function saveToCache(key, count) {
+        try {
+            const data = {
+                count: count,
+                timestamp: Date.now()
+            };
+            localStorage.setItem(key, JSON.stringify(data));
+        } catch (e) {
+            console.error('Error saving to local storage', e);
+        }
+    }
+
+    // --- LÓGICA PRINCIPAL ---
+
     function getCurrentContext() {
         const path = window.location.pathname;
-        // Regex para capturar idioma, juego y usuario. Ignora lo que venga después.
+        // Captura idioma, juego y usuario
         const match = path.match(/^\/([a-z]{2})\/([a-zA-Z]+)\/Users\/([a-zA-Z0-9_-]+)/);
-        
         if (match) {
             return {
                 lang: match[1],
@@ -60,50 +120,50 @@
         return null;
     }
 
-    /**
-     * Intenta encontrar el contenedor adecuado en la página.
-     * Prioriza el contenedor de tarjetas del perfil, pero busca alternativas si estamos en "Offers".
-     */
     function getContainer() {
-        // 1. Intenta encontrar el contenedor principal de tarjetas (Perfil clásico)
+        // 1. Contenedor estándar en el perfil principal
         let container = document.querySelector('#UserProductsMobile');
         
-        // 2. Si no existe (página de Offers u otra), busca la cabecera de secciones
+        // 2. Si estamos en la pestaña "Offers" (o no existe el anterior), creamos uno dinámico
         if (!container) {
-            // En la página de Offers, intentaremos inyectar antes de la tabla o en un lugar visible
-            const mainContent = document.querySelector('main.container');
-            if (mainContent) {
-                // Crear un contenedor dinámico si no existe el de productos
-                let dynamicContainer = document.getElementById('dynamic-multigame-container');
-                if (!dynamicContainer) {
-                    dynamicContainer = document.createElement('div');
-                    dynamicContainer.id = 'dynamic-multigame-container';
-                    dynamicContainer.className = 'row g-0 mb-4'; // Clases Bootstrap
-                    // Insertar al principio del main content
-                    mainContent.insertBefore(dynamicContainer, mainContent.firstChild.nextSibling);
-                }
-                container = dynamicContainer;
+            const main = document.querySelector('main.container');
+            if (main) {
+                // Buscamos si ya inyectamos el contenedor antes para no duplicar
+                let existingDynamic = document.getElementById('cm-dynamic-container');
+                if (existingDynamic) return existingDynamic;
+
+                // Creamos contenedor tipo fila de Bootstrap
+                let dynamicContainer = document.createElement('div');
+                dynamicContainer.id = 'cm-dynamic-container';
+                dynamicContainer.className = 'container cm-multigame-container';
+                
+                // Título opcional para sección
+                dynamicContainer.innerHTML = '<div class="d-flex justify-content-between align-items-center w-100 mb-3 pb-1 border-bottom border-light"><h2>Otros Juegos</h2></div><div class="row g-0" id="cm-dynamic-row"></div>';
+                
+                // Insertamos al principio del main
+                main.insertBefore(dynamicContainer, main.firstChild.nextSibling);
+                
+                return dynamicContainer.querySelector('#cm-dynamic-row');
             }
+        } else {
+            // Si el contenedor existe pero está vacío (a veces pasa), le damos formato fila
+            if (!container.classList.contains('row')) container.classList.add('row', 'g-0');
+            return container;
         }
-        return container;
+        return null;
     }
 
-    /**
-     * Crea el elemento visual (tarjeta) con el estado de carga.
-     */
-    function createCardElement(gameName, isLoading = true) {
+    function createCardElement(gameName, initialCount = '...') {
         const div = document.createElement('div');
-        // Clases responsivas de Bootstrap (igual que las tarjetas originales)
+        // Clases responsivas: col-12 en móvil, col-md-6 en tablet, col-xl-3 en desktop
         div.className = 'col-12 col-md-6 col-xl-3';
 
-        const loadingText = isLoading ? 'Cargando...' : '-';
-        
         div.innerHTML = `
-            <a href="#" class="card text-center w-100 galleryBox mb-3 mb-md-4 cm-multigame-card text-decoration-none">
-                <div class="card-body d-flex flex-column justify-content-center" style="min-height: 120px;">
-                    <h3 class="card-title cm-multigame-title">
+            <a href="#" class="card text-center w-100 galleryBox mb-3 mb-md-4 cm-multigame-card">
+                <div class="card-body d-flex flex-column justify-content-center" style="min-height: 100px;">
+                    <h3 class="card-title">
                         <span>${gameName}</span>
-                        <span class="bracketed text-muted small ms-2">${loadingText}</span>
+                        <span class="bracketed text-muted small ms-2">${initialCount}</span>
                     </h3>
                 </div>
             </a>
@@ -111,42 +171,26 @@
         return div;
     }
 
-    /**
-     * Actualiza la tarjeta con el conteo real y el enlace correcto.
-     */
-    function updateCardElement(element, url, gameName, count) {
+    function updateCardElement(element, url, count) {
         const link = element.querySelector('a');
-        const titleSpan = element.querySelector('h3');
+        const countSpan = element.querySelector('.bracketed');
         
-        link.href = url; // Aquí asignamos el enlace directo al perfil: /en/Magic/Users/User
-        
-        const displayCount = (count !== null && count !== undefined) ? count : '0';
-        
-        titleSpan.innerHTML = `
-            <span>${gameName}</span>
-            <span class="bracketed text-muted small ms-2">${displayCount}</span>
-        `;
+        link.href = url;
+        countSpan.textContent = (count !== null) ? count : '0';
     }
 
-    /**
-     * Petición HTTP para obtener el HTML de la página de perfil del otro juego.
-     */
     function fetchSinglesCount(url, callback) {
         GM_xmlhttpRequest({
             method: 'GET',
             url: url,
-            timeout: 10000, // 10 segundos de timeout
+            timeout: 8000,
             onload: function(response) {
                 if (response.status !== 200) {
                     callback(null);
                     return;
                 }
-
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(response.responseText, 'text/html');
-
-                // Buscamos el enlace "Cartas Sueltas"
-                // Selector robusto: busca el enlace que termina en /Offers/Singles
                 const singlesLink = doc.querySelector('a[href$="/Offers/Singles"]');
                 
                 if (singlesLink) {
@@ -158,39 +202,48 @@
                 }
                 callback(null);
             },
-            onerror: function() {
-                callback(null);
-            },
-            ontimeout: function() {
-                console.log('Timeout fetching: ' + url);
-                callback(null);
-            }
+            onerror: () => callback(null),
+            ontimeout: () => callback(null)
         });
     }
 
-    // --- EJECUCIÓN PRINCIPAL ---
+    // --- EJECUCIÓN ---
+
     const context = getCurrentContext();
     if (!context) return;
 
     const container = getContainer();
     if (!container) return;
 
-    // Iteramos sobre los juegos configurados
+    // Iterar sobre juegos
     for (const [gameId, gameName] of Object.entries(TARGET_GAMES)) {
-        // Saltamos el juego actual para no duplicar
         if (gameId === context.currentGame) continue;
 
-        // Construimos la URL base: https://www.cardmarket.com/es/YuGiOh/Users/Usuario
         const targetUrl = `https://www.cardmarket.com/${context.lang}/${gameId}/Users/${context.username}`;
+        const cacheKey = getCacheKey(context.username, gameId);
 
-        // Crear tarjeta de carga
-        const cardElement = createCardElement(gameName, true);
+        // 1. Crear tarjeta visual inmediatamente
+        const cardElement = createCardElement(gameName, '...');
         container.appendChild(cardElement);
 
-        // Pedir datos
-        fetchSinglesCount(targetUrl, (count) => {
-            updateCardElement(cardElement, targetUrl, gameName, count);
-        });
+        // 2. Intentar leer de caché
+        const cachedCount = getFromCache(cacheKey);
+
+        if (cachedCount !== null) {
+            // Si hay caché, actualizar directamente sin petición
+            updateCardElement(cardElement, targetUrl, cachedCount);
+        } else {
+            // Si no hay caché, hacer petición
+            fetchSinglesCount(targetUrl, (count) => {
+                const finalCount = (count !== null) ? count : '0';
+                updateCardElement(cardElement, targetUrl, finalCount);
+                
+                // Guardar en caché para la próxima vez
+                if (count !== null) {
+                    saveToCache(cacheKey, finalCount);
+                }
+            });
+        }
     }
 
 })();
