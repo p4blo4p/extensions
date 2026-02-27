@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cardmarket Multi-Game Singles Counter
 // @namespace    http://tampermonkey.net/
-// @version      1.5
-// @description  Añade contadores de otros juegos con selector robusto y caché optimizado.
+// @version      1.6
+// @description  Guarda el dato del juego actual para que esté disponible instantáneamente al cambiar de juego.
 // @author       TuAsistente
 // @match        https://www.cardmarket.com/*/Users/*
 // @match        https://www.cardmarket.com/*/Users/Offers/*
@@ -26,7 +26,7 @@
 
     // Caché: 24 horas
     const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; 
-    const CACHE_PREFIX = 'cm_mg_v3_'; // Nuevo prefijo para limpiar cachés rotas anteriores
+    const CACHE_PREFIX = 'cm_mg_v4_'; 
 
     // --- ESTILOS CSS ---
     GM_addStyle(`
@@ -134,18 +134,12 @@
     }
 
     /**
-     * Extrae el conteo del DOM.
-     * Si isRemote es false, busca en el documento actual (optimización juego actual).
-     * Si isRemote es true, busca en el documento parseado de la petición AJAX.
+     * Extrae el conteo del DOM actual.
+     * Busca específicamente en #UserProductsMobile para evitar leer datos erróneos.
      */
-    function extractCountFromDOM(doc, isRemote = false) {
-        // Estrategia: Buscar el contenedor de productos #UserProductsMobile
-        // Dentro de ese contenedor, buscar el enlace a Singles.
-        // Esto es mucho más seguro que buscar en todo el documento porque aísla la zona del perfil.
-        const productContainer = doc.querySelector('#UserProductsMobile');
-        
+    function extractCurrentPageCount() {
+        const productContainer = document.querySelector('#UserProductsMobile');
         if (productContainer) {
-            // Busca el enlace que termina en /Offers/Singles DENTRO del contenedor del usuario
             const singlesLink = productContainer.querySelector('a[href$="/Offers/Singles"]');
             if (singlesLink) {
                 const countSpan = singlesLink.querySelector('span.bracketed');
@@ -165,14 +159,19 @@
     const container = getContainer();
     if (!container) return;
 
-    // Iteramos sobre los juegos
+    // PASO 1: GUARDAR DATO ACTUAL
+    // Leemos el número de cartas del juego actual de la página que estamos viendo
+    // y lo guardamos en la caché. Así, si cambiamos a otro juego, este dato estará listo.
+    const currentCount = extractCurrentPageCount();
+    if (currentCount !== null) {
+        const cacheKeyCurrent = getCacheKey(context.username, context.currentGame);
+        saveToCache(cacheKeyCurrent, currentCount);
+    }
+
+    // PASO 2: GENERAR TARJETAS OTROS JUEGOS
     for (const [gameId, gameName] of Object.entries(TARGET_GAMES)) {
         
-        // COMPORTAMIENTO:
-        // Si es el juego actual, podríamos obtener el dato directamente del DOM sin peticiones.
-        // Sin embargo, visualmente ya tenemos esa tarjeta en la página principal.
-        // Por defecto saltamos el juego actual para no duplicar la tarjeta.
-        // Si deseas forzarlo para verlo en la lista unificada, comenta la siguiente línea.
+        // No mostramos tarjeta para el juego actual (ya está en la página principal)
         if (gameId === context.currentGame) continue; 
 
         const targetUrl = `https://www.cardmarket.com/${context.lang}/${gameId}/Users/${context.username}`;
@@ -182,12 +181,15 @@
         const cardElement = createCardElement(gameName, '...');
         container.appendChild(cardElement);
 
-        // Intentar caché
+        // PASO 3: BUSCAR EN CACHÉ
+        // Gracias al Paso 1, si venimos de otro juego, el dato estará aquí y será instantáneo.
         const cachedCount = getFromCache(cacheKey);
+
         if (cachedCount !== null) {
+            // HIT: Dato encontrado (probablemente del juego que acabamos de dejar). Instantáneo.
             updateCardElement(cardElement, targetUrl, cachedCount);
         } else {
-            // Petición fetch
+            // MISS: No tenemos el dato. Hacemos petición.
             GM_xmlhttpRequest({
                 method: 'GET',
                 url: targetUrl,
@@ -200,8 +202,16 @@
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(response.responseText, 'text/html');
                     
-                    // Usamos el extractor robusto
-                    const count = extractCountFromDOM(doc, true);
+                    // Buscamos el contenedor y luego el enlace
+                    const remoteContainer = doc.querySelector('#UserProductsMobile');
+                    let count = null;
+                    if (remoteContainer) {
+                         const link = remoteContainer.querySelector('a[href$="/Offers/Singles"]');
+                         if (link) {
+                             const span = link.querySelector('span.bracketed');
+                             if (span) count = span.textContent.trim();
+                         }
+                    }
                     
                     updateCardElement(cardElement, targetUrl, count);
                     if (count !== null) {
