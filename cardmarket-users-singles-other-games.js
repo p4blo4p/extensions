@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cardmarket Multi-Game Singles Counter
 // @namespace    http://tampermonkey.net/
-// @version      1.6
-// @description  Guarda el dato del juego actual para que esté disponible instantáneamente al cambiar de juego.
+// @version      1.7
+// @description  Muestra contadores de otros juegos con pre-carga inteligente y soporte para Pokémon.
 // @author       TuAsistente
 // @match        https://www.cardmarket.com/*/Users/*
 // @match        https://www.cardmarket.com/*/Users/Offers/*
@@ -17,6 +17,7 @@
 
     // --- CONFIGURACIÓN ---
     const TARGET_GAMES = {
+        'Pokemon': 'Pokémon', // Añadido Pokémon
         'Magic': 'Magic',
         'YuGiOh': 'Yu-Gi-Oh!',
         'DragonBallSuper': 'Dragon Ball Super',
@@ -26,7 +27,7 @@
 
     // Caché: 24 horas
     const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; 
-    const CACHE_PREFIX = 'cm_mg_v4_'; 
+    const CACHE_PREFIX = 'cm_mg_v5_'; 
 
     // --- ESTILOS CSS ---
     GM_addStyle(`
@@ -72,6 +73,7 @@
     }
 
     function saveToCache(key, count) {
+        if (count === null || count === undefined) return;
         try {
             localStorage.setItem(key, JSON.stringify({ count: count, timestamp: Date.now() }));
         } catch (e) { console.error('Error saving cache', e); }
@@ -81,6 +83,7 @@
 
     function getCurrentContext() {
         const path = window.location.pathname;
+        // Captura: idioma, juego, usuario. Ignora el resto de la URL (/Offers/Singles etc)
         const match = path.match(/^\/([a-z]{2})\/([a-zA-Z]+)\/Users\/([a-zA-Z0-9_-]+)/);
         if (match) {
             return { lang: match[1], currentGame: match[2], username: match[3] };
@@ -89,23 +92,33 @@
     }
 
     function getContainer() {
+        // Busca el contenedor en la página principal
         let container = document.querySelector('#UserProductsMobile');
-        if (!container) {
-            const main = document.querySelector('main.container');
-            if (main) {
-                let existingDynamic = document.getElementById('cm-dynamic-container');
-                if (existingDynamic) return existingDynamic.querySelector('#cm-dynamic-row');
+        if (container) {
+             if (!container.classList.contains('row')) container.classList.add('row', 'g-0');
+             return container;
+        }
 
-                let dynamicContainer = document.createElement('div');
-                dynamicContainer.id = 'cm-dynamic-container';
-                dynamicContainer.className = 'container cm-multigame-container';
-                dynamicContainer.innerHTML = '<div class="d-flex justify-content-between align-items-center w-100 mb-3 pb-1 border-bottom border-light"><h2>Otros Juegos</h2></div><div class="row g-0" id="cm-dynamic-row"></div>';
-                main.insertBefore(dynamicContainer, main.firstChild.nextSibling);
-                return dynamicContainer.querySelector('#cm-dynamic-row');
+        // Si no existe (estamos en Offers), creamos un contenedor dinámico
+        const main = document.querySelector('main.container');
+        if (main) {
+            let existingDynamic = document.getElementById('cm-dynamic-container');
+            if (existingDynamic) return existingDynamic.querySelector('#cm-dynamic-row');
+
+            let dynamicContainer = document.createElement('div');
+            dynamicContainer.id = 'cm-dynamic-container';
+            dynamicContainer.className = 'container cm-multigame-container';
+            dynamicContainer.innerHTML = '<div class="d-flex justify-content-between align-items-center w-100 mb-3 pb-1 border-bottom border-light"><h2>Otros Juegos</h2></div><div class="row g-0" id="cm-dynamic-row"></div>';
+            
+            // Insertar después de la info del usuario y antes de las evaluaciones/lista
+            let insertionPoint = main.querySelector('#EvaluationsH2') || main.querySelector('.table-responsive') || main.querySelector('section');
+            if (insertionPoint) {
+                main.insertBefore(dynamicContainer, insertionPoint.parentNode);
+            } else {
+                main.appendChild(dynamicContainer);
             }
-        } else {
-            if (!container.classList.contains('row')) container.classList.add('row', 'g-0');
-            return container;
+            
+            return dynamicContainer.querySelector('#cm-dynamic-row');
         }
         return null;
     }
@@ -134,20 +147,26 @@
     }
 
     /**
-     * Extrae el conteo del DOM actual.
-     * Busca específicamente en #UserProductsMobile para evitar leer datos erróneos.
+     * Intenta extraer el conteo de la página actual.
+     * 1. Busca en la tarjeta de "Cartas Sueltas" (Página principal).
+     * 2. Busca en la cabecera de la tabla o info (Página Offers).
      */
     function extractCurrentPageCount() {
+        // Método A: Página Principal (Card view)
         const productContainer = document.querySelector('#UserProductsMobile');
         if (productContainer) {
+            // Buscamos el enlace específico dentro del contenedor
             const singlesLink = productContainer.querySelector('a[href$="/Offers/Singles"]');
             if (singlesLink) {
                 const countSpan = singlesLink.querySelector('span.bracketed');
-                if (countSpan) {
-                    return countSpan.textContent.trim();
-                }
+                if (countSpan) return countSpan.textContent.trim();
             }
         }
+
+        // Método B: Página de Offers (Table/List view)
+        // A veces hay un texto "Mostrando 1-100 de 27000 resultados"
+        // O simplemente no hay contador directo. 
+        // Si no encontramos nada, devolvemos null.
         return null;
     }
 
@@ -159,20 +178,47 @@
     const container = getContainer();
     if (!container) return;
 
-    // PASO 1: GUARDAR DATO ACTUAL
-    // Leemos el número de cartas del juego actual de la página que estamos viendo
-    // y lo guardamos en la caché. Así, si cambiamos a otro juego, este dato estará listo.
-    const currentCount = extractCurrentPageCount();
+    // 1. Intentar obtener y guardar el dato ACTUAL
+    // Esto sirve para que, si estás viendo 27000 cartas, al cambiar de juego se guarde.
+    let currentCount = extractCurrentPageCount();
+    const cacheKeyCurrent = getCacheKey(context.username, context.currentGame);
+
     if (currentCount !== null) {
-        const cacheKeyCurrent = getCacheKey(context.username, context.currentGame);
         saveToCache(cacheKeyCurrent, currentCount);
+    } else {
+        // PRE-CACHING INTELIGENTE:
+        // Si estamos en la página de Offers y no vemos el contador, 
+        // hacemos una petición silenciosa a la página principal del perfil 
+        // para obtener el número y guardarlo. Así estaremos listos cuando el usuario cambie de juego.
+        if (!getFromCache(cacheKeyCurrent)) {
+            const profileUrl = `https://www.cardmarket.com/${context.lang}/${context.currentGame}/Users/${context.username}`;
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: profileUrl,
+                onload: function(response) {
+                    if (response.status === 200) {
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(response.responseText, 'text/html');
+                        const remoteContainer = doc.querySelector('#UserProductsMobile');
+                        if (remoteContainer) {
+                            const link = remoteContainer.querySelector('a[href$="/Offers/Singles"]');
+                            if (link) {
+                                const span = link.querySelector('span.bracketed');
+                                if (span) {
+                                    const count = span.textContent.trim();
+                                    saveToCache(cacheKeyCurrent, count);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
     }
 
-    // PASO 2: GENERAR TARJETAS OTROS JUEGOS
+    // 2. Generar tarjetas para OTROS juegos
     for (const [gameId, gameName] of Object.entries(TARGET_GAMES)) {
-        
-        // No mostramos tarjeta para el juego actual (ya está en la página principal)
-        if (gameId === context.currentGame) continue; 
+        if (gameId === context.currentGame) continue;
 
         const targetUrl = `https://www.cardmarket.com/${context.lang}/${gameId}/Users/${context.username}`;
         const cacheKey = getCacheKey(context.username, gameId);
@@ -181,15 +227,14 @@
         const cardElement = createCardElement(gameName, '...');
         container.appendChild(cardElement);
 
-        // PASO 3: BUSCAR EN CACHÉ
-        // Gracias al Paso 1, si venimos de otro juego, el dato estará aquí y será instantáneo.
+        // Buscar en caché
         const cachedCount = getFromCache(cacheKey);
 
         if (cachedCount !== null) {
-            // HIT: Dato encontrado (probablemente del juego que acabamos de dejar). Instantáneo.
+            // HIT: Mostrar inmediatamente
             updateCardElement(cardElement, targetUrl, cachedCount);
         } else {
-            // MISS: No tenemos el dato. Hacemos petición.
+            // MISS: Petición AJAX
             GM_xmlhttpRequest({
                 method: 'GET',
                 url: targetUrl,
@@ -202,9 +247,10 @@
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(response.responseText, 'text/html');
                     
-                    // Buscamos el contenedor y luego el enlace
+                    // Buscamos en el contenedor de productos del HTML remoto
                     const remoteContainer = doc.querySelector('#UserProductsMobile');
                     let count = null;
+                    
                     if (remoteContainer) {
                          const link = remoteContainer.querySelector('a[href$="/Offers/Singles"]');
                          if (link) {
