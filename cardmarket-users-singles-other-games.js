@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cardmarket Multi-Game Singles Counter
 // @namespace    http://tampermonkey.net/
-// @version      1.4
-// @description  Muestra contadores de otros juegos, corrigiendo el error del selector y optimizando caché.
+// @version      1.5
+// @description  Añade contadores de otros juegos con selector robusto y caché optimizado.
 // @author       TuAsistente
 // @match        https://www.cardmarket.com/*/Users/*
 // @match        https://www.cardmarket.com/*/Users/Offers/*
@@ -24,10 +24,9 @@
         'Riftbound': 'Riftbound'
     };
 
-    // Tiempo de vida del caché: 24 horas
+    // Caché: 24 horas
     const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; 
-    // Cambio de clave para invalidar cachés anteriores con el bug del "0"
-    const CACHE_PREFIX = 'cm_mg_v2_'; 
+    const CACHE_PREFIX = 'cm_mg_v3_'; // Nuevo prefijo para limpiar cachés rotas anteriores
 
     // --- ESTILOS CSS ---
     GM_addStyle(`
@@ -39,7 +38,6 @@
             transition: background-color 0.2s;
             text-decoration: none !important;
             display: block;
-            /* Fix scroll móvil */
             touch-action: pan-y; 
             user-select: none;
             -webkit-user-select: none;
@@ -132,39 +130,31 @@
         const link = element.querySelector('a');
         const countSpan = element.querySelector('.bracketed');
         link.href = url;
-        // Si count es null, mostramos "Err" para distinguirlo de un 0 real
-        countSpan.textContent = (count !== null) ? count : 'Err';
+        countSpan.textContent = (count !== null) ? count : '0';
     }
 
-    function fetchSinglesCount(url, username, callback) {
-        GM_xmlhttpRequest({
-            method: 'GET',
-            url: url,
-            timeout: 10000,
-            onload: function(response) {
-                if (response.status !== 200) { callback(null); return; }
-
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(response.responseText, 'text/html');
-
-                // CORRECCIÓN CRÍTICA:
-                // Buscamos el enlace que TERMINA en /Offers/Singles
-                // PERO ASEGURAMOS que contenga el nombre de usuario en la URL
-                // Esto evita confundirse con enlaces de navegación o del usuario logueado.
-                const singlesLink = doc.querySelector(`a[href*="/${username}/"][href$="/Offers/Singles"]`);
-
-                if (singlesLink) {
-                    const countSpan = singlesLink.querySelector('span.bracketed');
-                    if (countSpan) {
-                        callback(countSpan.textContent.trim());
-                        return;
-                    }
+    /**
+     * Extrae el conteo del DOM.
+     * Si isRemote es false, busca en el documento actual (optimización juego actual).
+     * Si isRemote es true, busca en el documento parseado de la petición AJAX.
+     */
+    function extractCountFromDOM(doc, isRemote = false) {
+        // Estrategia: Buscar el contenedor de productos #UserProductsMobile
+        // Dentro de ese contenedor, buscar el enlace a Singles.
+        // Esto es mucho más seguro que buscar en todo el documento porque aísla la zona del perfil.
+        const productContainer = doc.querySelector('#UserProductsMobile');
+        
+        if (productContainer) {
+            // Busca el enlace que termina en /Offers/Singles DENTRO del contenedor del usuario
+            const singlesLink = productContainer.querySelector('a[href$="/Offers/Singles"]');
+            if (singlesLink) {
+                const countSpan = singlesLink.querySelector('span.bracketed');
+                if (countSpan) {
+                    return countSpan.textContent.trim();
                 }
-                callback(null);
-            },
-            onerror: () => callback(null),
-            ontimeout: () => callback(null)
-        });
+            }
+        }
+        return null;
     }
 
     // --- EJECUCIÓN ---
@@ -175,30 +165,51 @@
     const container = getContainer();
     if (!container) return;
 
+    // Iteramos sobre los juegos
     for (const [gameId, gameName] of Object.entries(TARGET_GAMES)) {
-        if (gameId === context.currentGame) continue;
+        
+        // COMPORTAMIENTO:
+        // Si es el juego actual, podríamos obtener el dato directamente del DOM sin peticiones.
+        // Sin embargo, visualmente ya tenemos esa tarjeta en la página principal.
+        // Por defecto saltamos el juego actual para no duplicar la tarjeta.
+        // Si deseas forzarlo para verlo en la lista unificada, comenta la siguiente línea.
+        if (gameId === context.currentGame) continue; 
 
         const targetUrl = `https://www.cardmarket.com/${context.lang}/${gameId}/Users/${context.username}`;
         const cacheKey = getCacheKey(context.username, gameId);
 
+        // Crear tarjeta visual
         const cardElement = createCardElement(gameName, '...');
         container.appendChild(cardElement);
 
+        // Intentar caché
         const cachedCount = getFromCache(cacheKey);
-
         if (cachedCount !== null) {
             updateCardElement(cardElement, targetUrl, cachedCount);
         } else {
-            // Pasamos 'username' a la función de fetch para el selector preciso
-            fetchSinglesCount(targetUrl, context.username, (count) => {
-                const finalCount = (count !== null) ? count : 'Err';
-                updateCardElement(cardElement, targetUrl, finalCount);
-                
-                // Solo guardamos en caché si obtuvimos un dato válido (incluso si es "0")
-                // No guardamos errores ("Err"/null)
-                if (count !== null) {
-                    saveToCache(cacheKey, count);
-                }
+            // Petición fetch
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: targetUrl,
+                timeout: 10000,
+                onload: function(response) {
+                    if (response.status !== 200) {
+                        updateCardElement(cardElement, targetUrl, 'Err');
+                        return;
+                    }
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(response.responseText, 'text/html');
+                    
+                    // Usamos el extractor robusto
+                    const count = extractCountFromDOM(doc, true);
+                    
+                    updateCardElement(cardElement, targetUrl, count);
+                    if (count !== null) {
+                        saveToCache(cacheKey, count);
+                    }
+                },
+                onerror: () => updateCardElement(cardElement, targetUrl, 'Err'),
+                ontimeout: () => updateCardElement(cardElement, targetUrl, 'Err')
             });
         }
     }
