@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         Cardmarket Multi-Game Singles Counter
 // @namespace    http://tampermonkey.net/
-// @version      1.7
+// @version      1.8
 // @description  Muestra contadores de otros juegos con pre-carga inteligente y soporte para Pokémon.
 // @author       TuAsistente
-// @match        https://www.cardmarket.com/*/Users/*
-// @match        https://www.cardmarket.com/*/Users/Offers/*
+// @match        https://www.cardmarket.com/*/*/Users/*
+// @match        https://www.cardmarket.com/*/*/Users/Offers/*
+// @icon         https://www.cardmarket.com/favicon.ico
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @connect      www.cardmarket.com
@@ -17,7 +18,7 @@
 
     // --- CONFIGURACIÓN ---
     const TARGET_GAMES = {
-        'Pokemon': 'Pokémon', // Añadido Pokémon
+        'Pokemon': 'Pokémon',
         'Magic': 'Magic',
         'YuGiOh': 'Yu-Gi-Oh!',
         'DragonBallSuper': 'Dragon Ball Super',
@@ -84,6 +85,7 @@
     function getCurrentContext() {
         const path = window.location.pathname;
         // Captura: idioma, juego, usuario. Ignora el resto de la URL (/Offers/Singles etc)
+        // Ejemplo path: /es/Magic/Users/sandramagic
         const match = path.match(/^\/([a-z]{2})\/([a-zA-Z]+)\/Users\/([a-zA-Z0-9_-]+)/);
         if (match) {
             return { lang: match[1], currentGame: match[2], username: match[3] };
@@ -162,11 +164,6 @@
                 if (countSpan) return countSpan.textContent.trim();
             }
         }
-
-        // Método B: Página de Offers (Table/List view)
-        // A veces hay un texto "Mostrando 1-100 de 27000 resultados"
-        // O simplemente no hay contador directo. 
-        // Si no encontramos nada, devolvemos null.
         return null;
     }
 
@@ -179,7 +176,6 @@
     if (!container) return;
 
     // 1. Intentar obtener y guardar el dato ACTUAL
-    // Esto sirve para que, si estás viendo 27000 cartas, al cambiar de juego se guarde.
     let currentCount = extractCurrentPageCount();
     const cacheKeyCurrent = getCacheKey(context.username, context.currentGame);
 
@@ -188,8 +184,7 @@
     } else {
         // PRE-CACHING INTELIGENTE:
         // Si estamos en la página de Offers y no vemos el contador, 
-        // hacemos una petición silenciosa a la página principal del perfil 
-        // para obtener el número y guardarlo. Así estaremos listos cuando el usuario cambie de juego.
+        // hacemos una petición silenciosa a la página principal del perfil.
         if (!getFromCache(cacheKeyCurrent)) {
             const profileUrl = `https://www.cardmarket.com/${context.lang}/${context.currentGame}/Users/${context.username}`;
             GM_xmlhttpRequest({
@@ -247,7 +242,6 @@
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(response.responseText, 'text/html');
                     
-                    // Buscamos en el contenedor de productos del HTML remoto
                     const remoteContainer = doc.querySelector('#UserProductsMobile');
                     let count = null;
                     
