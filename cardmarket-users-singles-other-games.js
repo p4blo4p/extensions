@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Cardmarket Multi-Game Singles Counter
+// @name         Cardmarket Multi-Game Singles Counter - FIXED
 // @namespace    http://tampermonkey.net/
-// @version      2.1
-// @description  Cuenta cartas de otros juegos. Status 200 sin tarjeta = 0. Cache optimizado.
+// @version      2.2
+// @description  Cuenta cartas de otros juegos. Fix: Ahora funciona desde cualquier juego.
 // @author       TuAsistente
 // @match        https://www.cardmarket.com/*/*/Users/*
 // @match        https://www.cardmarket.com/*/*/Users/Offers/*
@@ -28,9 +28,9 @@
  
     // Caché: 24 horas
     const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; 
-    const CACHE_PREFIX = 'cm_mg_v8_'; // Nueva versión para limpiar cachés anteriores
-    const MAX_CONCURRENT_REQUESTS = 3; // Límite de solicitudes simultáneas
-    const REQUEST_TIMEOUT_MS = 10000;
+    const CACHE_PREFIX = 'cm_mg_v9_'; // Nueva versión
+    const MAX_CONCURRENT_REQUESTS = 2; // Reducido para evitar bloqueos
+    const REQUEST_TIMEOUT_MS = 15000; // Aumentado timeout
  
     // --- ESTILOS CSS ---
     GM_addStyle(`
@@ -55,6 +55,7 @@
         .cm-multigame-card .bracketed { color: #aaa !important; }
         .cm-multigame-card.loading .bracketed { color: #ffc107 !important; }
         .cm-multigame-card.error .bracketed { color: #dc3545 !important; }
+        .cm-multigame-card.zero .bracketed { color: #6c757d !important; }
         @media (max-width: 768px) { .cm-multigame-card .card-title { font-size: 0.9rem; } }
     `);
  
@@ -81,7 +82,6 @@
     }
  
     function saveToCache(key, count) {
-        // Guardamos incluso si es '0' para no repetir peticiones innecesarias
         if (count === null || count === undefined) return;
         try {
             localStorage.setItem(key, JSON.stringify({ count: count, timestamp: Date.now() }));
@@ -95,7 +95,6 @@
         const match = path.match(/^\/([a-z]{2})\/([a-zA-Z]+)\/Users\/([a-zA-Z0-9_-]+)/);
         if (match) {
             const username = match[3];
-            // Validación básica del username
             if (username.length > 0 && username.length <= 50 && /^[a-zA-Z0-9_-]+$/.test(username)) {
                 return { lang: match[1], currentGame: match[2], username: username };
             }
@@ -120,7 +119,6 @@
             dynamicContainer.className = 'container cm-multigame-container';
             dynamicContainer.innerHTML = '<div class="d-flex justify-content-between align-items-center w-100 mb-3 pb-1 border-bottom border-light"><h2>Otros Juegos</h2></div><div class="row g-0" id="cm-dynamic-row"></div>';
             
-            // Mejoramos la lógica de inserción con múltiples fallbacks
             const insertionPoints = [
                 main.querySelector('#EvaluationsH2'),
                 main.querySelector('.table-responsive'),
@@ -136,7 +134,6 @@
                 }
             }
             
-            // Último recurso: añadir al final
             main.appendChild(dynamicContainer);
             return dynamicContainer.querySelector('#cm-dynamic-row');
         }
@@ -162,72 +159,95 @@
     function updateCardElement(element, url, count) {
         const link = element.querySelector('a');
         const countSpan = element.querySelector('.bracketed');
+        const card = element.querySelector('.cm-multigame-card');
         
         link.href = url;
+        card.classList.remove('loading', 'error', 'zero');
         
         if (count === null) {
             countSpan.textContent = 'Err';
-            element.querySelector('.cm-multigame-card').classList.remove('loading');
-            element.querySelector('.cm-multigame-card').classList.add('error');
+            card.classList.add('error');
         } else if (count === '...') {
             countSpan.textContent = '...';
-            element.querySelector('.cm-multigame-card').classList.add('loading');
+            card.classList.add('loading');
+        } else if (count === '0') {
+            countSpan.textContent = '0';
+            card.classList.add('zero');
         } else {
             countSpan.textContent = count;
-            element.querySelector('.cm-multigame-card').classList.remove('loading', 'error');
         }
     }
  
     /**
-     * Extrae el conteo del DOM.
-     * Devuelve '0' si el usuario no tiene Singles (0 cartas) pero la tarjeta existe o no.
-     * Devuelve null solo si hay un error real al procesar el DOM.
+     * EXTRACCIÓN MEJORADA - Ahora usa múltiples estrategias
      */
     function extractCountFromDOM(doc) {
         try {
-            const productContainer = doc.querySelector('#UserProductsMobile');
+            console.log('Intentando extracción desde DOM...');
+            
+            // Estrategia 1: Selector principal
+            let productContainer = doc.querySelector('#UserProductsMobile');
             if (productContainer) {
-                const singlesLink = productContainer.querySelector('a[href$="/Offers/Singles"]');
+                console.log('Contenedor #UserProductsMobile encontrado');
+                let singlesLink = productContainer.querySelector('a[href*="/Singles"]');
                 if (singlesLink) {
-                    const countSpan = singlesLink.querySelector('span.bracketed');
+                    let countSpan = singlesLink.querySelector('span.bracketed');
                     if (countSpan) {
-                        const text = countSpan.textContent.trim();
-                        // Validar que sea un número o '0'
+                        let text = countSpan.textContent.trim();
+                        console.log('Conte extraído:', text);
                         if (/^\d+$/.test(text)) return text;
                     }
-                    // Si existe el enlace de Singles pero no tiene countSpan, asumimos 0
                     return '0';
                 }
-                // Si existe el contenedor pero no el enlace de Singles, asumimos 0 cartas
-                return '0';
             }
-            // Si no existe el contenedor #UserProductsMobile, puede ser error o que cargó mal
-            // Intentamos buscar alternativas
-            const alternativeContainer = doc.querySelector('.card-body');
-            if (alternativeContainer) {
-                const altSinglesLink = alternativeContainer.querySelector('a[href*="/Singles"]');
-                if (altSinglesLink) {
-                    // Intento de extracción alternativa
-                    const text = altSinglesLink.textContent.trim();
-                    const match = text.match(/\((\d+)\)/);
-                    if (match) return match[1];
+            
+            // Estrategia 2: Buscar cualquier link que contenga /Singles
+            console.log('Buscando links con /Singles en todo el documento');
+            let allSinglesLinks = doc.querySelectorAll('a[href*="/Singles"]');
+            for (let link of allSinglesLinks) {
+                let countSpan = link.querySelector('span.bracketed, .text-muted');
+                if (countSpan) {
+                    let text = countSpan.textContent.trim();
+                    let match = text.match(/\d+/);
+                    if (match) {
+                        console.log('Conte encontrado con estrategia 2:', match[0]);
+                        return match[0];
+                    }
                 }
             }
-            // Si no encontramos nada, asumimos que es un error de carga
-            return null;
+            
+            // Estrategia 3: Buscar números entre paréntesis en cualquier lugar
+            console.log('Buscando números entre paréntesis');
+            let allElements = doc.querySelectorAll('span, div, a');
+            for (let elem of allElements) {
+                let text = elem.textContent.trim();
+                if (text && /^\(\d+\)$/.test(text)) {
+                    let num = text.replace(/[()]/g, '');
+                    console.log('Conte encontrado con estrategia 3:', num);
+                    return num;
+                }
+            }
+            
+            // Estrategia 4: Si no encontramos nada pero la página cargó, asumimos 0
+            console.log('No se encontró conteo, asumiendo 0');
+            return '0';
+            
         } catch (e) {
-            console.error('Error extracting count from DOM:', e);
+            console.error('Error extrayendo conteo:', e);
             return null;
         }
     }
  
-    // --- GESTIÓN DE SOLICITUDES CONCURRENTES ---
+    // --- GESTIÓN DE SOLICITUDES MEJORADA ---
  
     let activeRequests = 0;
     const requestQueue = [];
  
     function makeGMRequest(url, callbacks) {
+        console.log('Haciendo petición a:', url);
+        
         if (activeRequests >= MAX_CONCURRENT_REQUESTS) {
+            console.log('Cola llena, añadiendo a la espera');
             requestQueue.push({ url, callbacks });
             return;
         }
@@ -237,21 +257,26 @@
             method: 'GET',
             url: url,
             timeout: REQUEST_TIMEOUT_MS,
+            headers: {
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': document.documentElement.lang || 'es'
+            },
             onload: (response) => {
                 activeRequests--;
+                console.log('Respuesta recibida de:', url, 'Status:', response.status);
                 processQueue();
                 if (callbacks.onload) callbacks.onload(response);
             },
             onerror: () => {
                 activeRequests--;
+                console.error('Error en petición a:', url);
                 processQueue();
-                console.error(`Error fetching ${url}`);
                 if (callbacks.onerror) callbacks.onerror();
             },
             ontimeout: () => {
                 activeRequests--;
+                console.error('Timeout en petición a:', url);
                 processQueue();
-                console.error(`Timeout fetching ${url}`);
                 if (callbacks.ontimeout) callbacks.ontimeout();
             }
         });
@@ -264,13 +289,17 @@
         }
     }
  
-    // --- EJECUCIÓN ---
+    // --- EJECUCIÓN PRINCIPAL ---
  
+    console.log('Iniciando Cardmarket Multi-Game Singles Counter...');
+    
     const context = getCurrentContext();
     if (!context) {
         console.log('No valid context found, script aborted');
         return;
     }
+    
+    console.log('Contexto:', context);
  
     const container = getContainer();
     if (!container) {
@@ -278,49 +307,19 @@
         return;
     }
  
-    // 1. Guardar dato ACTUAL del juego en el que estamos
+    // 1. Guardar dato del juego actual si es posible
     const cacheKeyCurrent = getCacheKey(context.username, context.currentGame);
- 
-    // Intentamos extraer del DOM actual
-    let currentCount = extractCountFromDOM(document);
- 
-    // Detectamos si estamos en una página donde el contador es visible (Main Profile)
-    const isMainProfilePage = !!document.querySelector('#UserProductsMobile');
+    const currentCount = extractCountFromDOM(document);
     
-    if (isMainProfilePage) {
-        // Guardamos lo que sea que haya (número o 0)
-        if (currentCount !== null) {
-            saveToCache(cacheKeyCurrent, currentCount);
-        }
-    } else {
-        // Pre-caching: Si estamos en Offers y no tenemos el dato cacheado, pedimos el perfil principal
-        if (getFromCache(cacheKeyCurrent) === null) {
-             const profileUrl = `https://www.cardmarket.com/${context.lang}/${context.currentGame}/Users/${context.username}`;
-             console.log('Precaching current game profile:', profileUrl);
-             makeGMRequest(profileUrl, {
-                onload: function(response) {
-                    if (response.status === 200) {
-                        const parser = new DOMParser();
-                        const doc = parser.parseFromString(response.responseText, 'text/html');
-                        const count = extractCountFromDOM(doc);
-                        console.log('Precaching result for current game:', count);
-                        if (count !== null) {
-                            saveToCache(cacheKeyCurrent, count);
-                        }
-                    }
-                },
-                onerror: function() {
-                    console.error('Error precaching current game profile');
-                },
-                ontimeout: function() {
-                    console.error('Timeout precaching current game profile');
-                }
-            });
-        }
+    if (currentCount !== null) {
+        saveToCache(cacheKeyCurrent, currentCount);
+        console.log('Conte del juego actual guardado:', currentCount);
     }
  
-    // 2. Generar tarjetas OTROS juegos
+    // 2. Generar tarjetas para OTROS juegos - ESTA ES LA PARTE CRÍTICA
     const gamesToProcess = Object.entries(TARGET_GAMES).filter(([gameId]) => gameId !== context.currentGame);
+    
+    console.log('Juegos a procesar:', gamesToProcess.map(([id, name]) => name));
  
     gamesToProcess.forEach(([gameId, gameName]) => {
         const targetUrl = `https://www.cardmarket.com/${context.lang}/${gameId}/Users/${context.username}`;
@@ -330,45 +329,54 @@
         container.appendChild(cardElement);
  
         const cachedCount = getFromCache(cacheKey);
+        
+        console.log(`Procesando ${gameName}: URL=${targetUrl}, Cache=${cachedCount}`);
  
         if (cachedCount !== null) {
-            // Tenemos dato en caché, lo mostramos directamente
             updateCardElement(cardElement, targetUrl, cachedCount);
         } else {
-            // No tenemos dato en caché, hacemos la petición
-            console.log('Fetching data for game:', gameName, targetUrl);
+            // IMPORTANTE: Aquí es donde fallaba - ahora con logging y mejor manejo
             makeGMRequest(targetUrl, {
                 onload: function(response) {
+                    console.log(`Respuesta para ${gameName}: Status=${response.status}`);
+                    
                     if (response.status !== 200) {
-                        updateCardElement(cardElement, targetUrl, null); // Muestra Err
+                        console.error(`Error HTTP ${response.status} para ${gameName}`);
+                        updateCardElement(cardElement, targetUrl, null);
                         return;
                     }
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(response.responseText, 'text/html');
                     
-                    // Ahora extractCountFromDOM devuelve '0' si no hay cartas, null solo si error
-                    const count = extractCountFromDOM(doc);
-                    console.log('Result for', gameName, ':', count);
-                    
-                    // Guardamos incluso si es '0' o un número
-                    if (count !== null) {
-                        saveToCache(cacheKey, count);
-                        updateCardElement(cardElement, targetUrl, count);
-                    } else {
-                        // Si count es null, fue un error real
+                    try {
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(response.responseText, 'text/html');
+                        
+                        console.log(`Intentando extracción para ${gameName}...`);
+                        const count = extractCountFromDOM(doc);
+                        console.log(`Resultado para ${gameName}:`, count);
+                        
+                        if (count !== null) {
+                            saveToCache(cacheKey, count);
+                            updateCardElement(cardElement, targetUrl, count);
+                        } else {
+                            updateCardElement(cardElement, targetUrl, null);
+                        }
+                    } catch (e) {
+                        console.error(`Error procesando respuesta de ${gameName}:`, e);
                         updateCardElement(cardElement, targetUrl, null);
                     }
                 },
                 onerror: () => {
-                    console.error('Error fetching', gameName);
+                    console.error(`Error de petición para ${gameName}`);
                     updateCardElement(cardElement, targetUrl, null);
                 },
                 ontimeout: () => {
-                    console.error('Timeout fetching', gameName);
+                    console.error(`Timeout para ${gameName}`);
                     updateCardElement(cardElement, targetUrl, null);
                 }
             });
         }
     });
+ 
+    console.log('Script Cardmarket Multi-Game Singles Counter iniciado correctamente');
  
 })();
