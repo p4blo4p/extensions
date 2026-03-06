@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cardmarket Multi-Game Singles Counter
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      2.1
 // @description  Cuenta cartas de otros juegos. Status 200 sin tarjeta = 0. Cache optimizado.
 // @author       TuAsistente
 // @match        https://www.cardmarket.com/*/*/Users/*
@@ -10,7 +10,7 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @connect      www.cardmarket.com
-// @run-at       document-end
+// @run-at        document-end
 // ==/UserScript==
  
 (function() {
@@ -28,7 +28,7 @@
  
     // Caché: 24 horas
     const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; 
-    const CACHE_PREFIX = 'cm_mg_v7_'; // Nueva versión para limpiar cachés anteriores
+    const CACHE_PREFIX = 'cm_mg_v8_'; // Nueva versión para limpiar cachés anteriores
     const MAX_CONCURRENT_REQUESTS = 3; // Límite de solicitudes simultáneas
     const REQUEST_TIMEOUT_MS = 10000;
  
@@ -180,13 +180,12 @@
  
     /**
      * Extrae el conteo del DOM.
-     * Si no encuentra la tarjeta o hay error, devuelve null.
-     * Si encuentra 0 cartas, devuelve '0'.
+     * Devuelve '0' si el usuario no tiene Singles (0 cartas) pero la tarjeta existe o no.
+     * Devuelve null solo si hay un error real al procesar el DOM.
      */
     function extractCountFromDOM(doc) {
         try {
             const productContainer = doc.querySelector('#UserProductsMobile');
-            // Si existe el contenedor, buscamos el enlace
             if (productContainer) {
                 const singlesLink = productContainer.querySelector('a[href$="/Offers/Singles"]');
                 if (singlesLink) {
@@ -196,9 +195,25 @@
                         // Validar que sea un número o '0'
                         if (/^\d+$/.test(text)) return text;
                     }
+                    // Si existe el enlace de Singles pero no tiene countSpan, asumimos 0
+                    return '0';
+                }
+                // Si existe el contenedor pero no el enlace de Singles, asumimos 0 cartas
+                return '0';
+            }
+            // Si no existe el contenedor #UserProductsMobile, puede ser error o que cargó mal
+            // Intentamos buscar alternativas
+            const alternativeContainer = doc.querySelector('.card-body');
+            if (alternativeContainer) {
+                const altSinglesLink = alternativeContainer.querySelector('a[href*="/Singles"]');
+                if (altSinglesLink) {
+                    // Intento de extracción alternativa
+                    const text = altSinglesLink.textContent.trim();
+                    const match = text.match(/\((\d+)\)/);
+                    if (match) return match[1];
                 }
             }
-            // Si no encuentra tarjeta (pero la página cargó), devolvemos null (error)
+            // Si no encontramos nada, asumimos que es un error de carga
             return null;
         } catch (e) {
             console.error('Error extracting count from DOM:', e);
@@ -263,27 +278,32 @@
         return;
     }
  
-    // 1. Guardar dato ACTUAL
-    // Intentamos extraerlo del DOM actual
-    let currentCount = extractCountFromDOM(document);
+    // 1. Guardar dato ACTUAL del juego en el que estamos
     const cacheKeyCurrent = getCacheKey(context.username, context.currentGame);
+ 
+    // Intentamos extraer del DOM actual
+    let currentCount = extractCountFromDOM(document);
  
     // Detectamos si estamos en una página donde el contador es visible (Main Profile)
     const isMainProfilePage = !!document.querySelector('#UserProductsMobile');
     
-    if (isMainProfilePage && currentCount !== null) {
-        // Solo guardamos si tenemos un valor válido
-        saveToCache(cacheKeyCurrent, currentCount);
+    if (isMainProfilePage) {
+        // Guardamos lo que sea que haya (número o 0)
+        if (currentCount !== null) {
+            saveToCache(cacheKeyCurrent, currentCount);
+        }
     } else {
         // Pre-caching: Si estamos en Offers y no tenemos el dato cacheado, pedimos el perfil principal
         if (getFromCache(cacheKeyCurrent) === null) {
              const profileUrl = `https://www.cardmarket.com/${context.lang}/${context.currentGame}/Users/${context.username}`;
+             console.log('Precaching current game profile:', profileUrl);
              makeGMRequest(profileUrl, {
                 onload: function(response) {
                     if (response.status === 200) {
                         const parser = new DOMParser();
                         const doc = parser.parseFromString(response.responseText, 'text/html');
                         const count = extractCountFromDOM(doc);
+                        console.log('Precaching result for current game:', count);
                         if (count !== null) {
                             saveToCache(cacheKeyCurrent, count);
                         }
@@ -312,8 +332,11 @@
         const cachedCount = getFromCache(cacheKey);
  
         if (cachedCount !== null) {
+            // Tenemos dato en caché, lo mostramos directamente
             updateCardElement(cardElement, targetUrl, cachedCount);
         } else {
+            // No tenemos dato en caché, hacemos la petición
+            console.log('Fetching data for game:', gameName, targetUrl);
             makeGMRequest(targetUrl, {
                 onload: function(response) {
                     if (response.status !== 200) {
@@ -323,16 +346,27 @@
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(response.responseText, 'text/html');
                     
-                    // Usamos la función que devuelve null si hay error
+                    // Ahora extractCountFromDOM devuelve '0' si no hay cartas, null solo si error
                     const count = extractCountFromDOM(doc);
+                    console.log('Result for', gameName, ':', count);
                     
-                    updateCardElement(cardElement, targetUrl, count);
+                    // Guardamos incluso si es '0' o un número
                     if (count !== null) {
                         saveToCache(cacheKey, count);
+                        updateCardElement(cardElement, targetUrl, count);
+                    } else {
+                        // Si count es null, fue un error real
+                        updateCardElement(cardElement, targetUrl, null);
                     }
                 },
-                onerror: () => updateCardElement(cardElement, targetUrl, null),
-                ontimeout: () => updateCardElement(cardElement, targetUrl, null)
+                onerror: () => {
+                    console.error('Error fetching', gameName);
+                    updateCardElement(cardElement, targetUrl, null);
+                },
+                ontimeout: () => {
+                    console.error('Timeout fetching', gameName);
+                    updateCardElement(cardElement, targetUrl, null);
+                }
             });
         }
     });
